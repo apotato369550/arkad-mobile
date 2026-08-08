@@ -6,9 +6,9 @@ import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../services/formatters.dart';
 
-/// Income-vs-expense bar chart with a 7D/30D/3M/12M range selector. No
+/// Income-vs-expense bar chart with a 7D/6M/12M range selector. No
 /// charting package — plain rows of rounded-top bars, sized responsively so
-/// any bucket count (7 daily bars up to 30) fits without overflow.
+/// any bucket count (7 daily bars up to 12 monthly bars) fits without overflow.
 /// See STYLE_GUIDE.md § Cash flow chart.
 class CashFlowChart extends StatefulWidget {
   const CashFlowChart({super.key, required this.appState});
@@ -32,8 +32,7 @@ class _CashFlowChartState extends State<CashFlowChart> {
     const chartHeight = 120.0;
     final labelStep = switch (_range) {
       CashFlowRange.sevenDays => 1,
-      CashFlowRange.thirtyDays => 5,
-      CashFlowRange.threeMonths => 2,
+      CashFlowRange.sixMonths => 1,
       CashFlowRange.twelveMonths => 1,
     };
 
@@ -111,8 +110,7 @@ class _CashFlowChartState extends State<CashFlowChart> {
 
   String _labelFor(DateTime date) => switch (_range) {
         CashFlowRange.sevenDays => formatDayLabel(date),
-        CashFlowRange.thirtyDays => formatDayNumber(date),
-        CashFlowRange.threeMonths => formatMonthDay(date),
+        CashFlowRange.sixMonths => formatMonthLabel(date),
         CashFlowRange.twelveMonths => formatMonthLabel(date),
       };
 }

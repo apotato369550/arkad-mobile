@@ -17,9 +17,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _nameController;
-  late final TextEditingController _goalController;
-  late final TextEditingController _incomeController;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _modelController;
   bool _keyVisible = false;
@@ -27,38 +24,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    final profile = widget.appState.profile;
     final config = widget.appState.apiConfig;
-    _nameController = TextEditingController(text: profile.displayName);
-    _goalController = TextEditingController(text: profile.financialGoal);
-    _incomeController = TextEditingController(
-      text: profile.typicalMonthlyIncome == null ? '' : profile.typicalMonthlyIncome!.toStringAsFixed(0),
-    );
     _apiKeyController = TextEditingController(text: config.apiKey ?? '');
     _modelController = TextEditingController(text: config.modelSlug);
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _goalController.dispose();
-    _incomeController.dispose();
     _apiKeyController.dispose();
     _modelController.dispose();
     super.dispose();
-  }
-
-  void _savePersonal() {
-    final income = double.tryParse(_incomeController.text.trim());
-    widget.appState.updateProfile(
-      widget.appState.profile.copyWith(
-        displayName: _nameController.text.trim(),
-        financialGoal: _goalController.text.trim(),
-        typicalMonthlyIncome: income,
-        clearTypicalMonthlyIncome: income == null,
-      ),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Personal info saved')));
   }
 
   void _saveConnection() {
@@ -108,28 +83,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Text('Settings', style: AppTextStyles.pageHeading()),
         const SizedBox(height: 20),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Personal basics', style: AppTextStyles.cardHeading()),
-              const SizedBox(height: 16),
-              TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Display name')),
-              const SizedBox(height: 12),
-              TextField(controller: _goalController, decoration: const InputDecoration(labelText: 'Financial goal')),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _incomeController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: AppTextStyles.dmMono(),
-                decoration: const InputDecoration(labelText: 'Typical monthly income', prefixText: '\$ '),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(onPressed: _savePersonal, child: const Text('Save personal info')),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

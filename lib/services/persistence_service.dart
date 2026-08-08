@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/api_config.dart';
 import '../models/category.dart';
 import '../models/chat_message.dart';
+import '../models/conversation.dart';
 import '../models/profile.dart';
 import '../models/transaction.dart';
 
@@ -24,6 +25,7 @@ class PersistenceService {
   static const _incomeCategoriesKey = 'arkad:income-categories:v1';
   static const _expenseCategoriesKey = 'arkad:expense-categories:v1';
   static const _apiConfigKey = 'arkad:api-config:v1';
+  static const _conversationsKey = 'arkad:conversations:v1';
   static const _chatHistoryKey = 'arkad:chat-history:v1';
   static const _secureApiKeyKey = 'arkad_api_key';
   // Bounds every secure-storage call: Keystore/libsecret access can in
@@ -150,19 +152,47 @@ class PersistenceService {
     );
   }
 
-  List<ChatMessage> loadChatHistory() {
-    final raw = _prefs.getString(_chatHistoryKey);
-    if (raw == null) return [];
-    try {
-      final list = jsonDecode(raw) as List<dynamic>;
-      return list.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>)).toList();
-    } catch (_) {
-      return [];
+  List<Conversation> loadConversations() {
+    final raw = _prefs.getString(_conversationsKey);
+    if (raw != null) {
+      try {
+        final list = jsonDecode(raw) as List<dynamic>;
+        return list.map((e) => Conversation.fromJson(e as Map<String, dynamic>)).toList();
+      } catch (_) {
+        return [];
+      }
     }
+
+    // Migration: if new key is empty but old key has data, migrate it.
+    final legacyRaw = _prefs.getString(_chatHistoryKey);
+    if (legacyRaw != null) {
+      try {
+        final legacyList = jsonDecode(legacyRaw) as List<dynamic>;
+        final legacyMessages = legacyList
+            .map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
+            .toList();
+
+        if (legacyMessages.isNotEmpty) {
+          final conversation = Conversation(
+            id: 'legacy',
+            title: 'Previous conversation',
+            createdAt: legacyMessages.first.timestamp,
+            messages: legacyMessages,
+          );
+          saveConversations([conversation]);
+          return [conversation];
+        }
+      } catch (_) {}
+    }
+
+    return [];
   }
 
-  Future<void> saveChatHistory(List<ChatMessage> messages) {
-    return _prefs.setString(_chatHistoryKey, jsonEncode(messages.map((m) => m.toJson()).toList()));
+  Future<void> saveConversations(List<Conversation> conversations) {
+    return _prefs.setString(
+      _conversationsKey,
+      jsonEncode(conversations.map((c) => c.toJson()).toList()),
+    );
   }
 
   Future<void> clearAll() async {
@@ -176,6 +206,7 @@ class PersistenceService {
       _prefs.remove(_incomeCategoriesKey),
       _prefs.remove(_expenseCategoriesKey),
       _prefs.remove(_apiConfigKey),
+      _prefs.remove(_conversationsKey),
       _prefs.remove(_chatHistoryKey),
     ]);
   }
@@ -184,7 +215,7 @@ class PersistenceService {
   /// mid-year raise), rent, subscriptions, groceries, dining, transport,
   /// entertainment, health, occasional travel, freelance income, and a
   /// December bonus — so a fresh install has enough history to populate
-  /// every cash flow chart range (7D/30D/3M/12M) and several pages of
+  /// every cash flow chart range (7D/6M/12M) and several pages of
   /// recent activity. Seeded RNG for jitter only — dates and cadence are
   /// deterministic.
   List<LedgerTransaction> _seedTransactions() {

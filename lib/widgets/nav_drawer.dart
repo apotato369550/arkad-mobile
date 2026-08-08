@@ -12,11 +12,13 @@ class NavDrawer extends StatelessWidget {
     required this.current,
     required this.onSelect,
     required this.onOpenChat,
+    required this.onOpenConversations,
   });
 
   final AppView current;
   final ValueChanged<AppView> onSelect;
   final VoidCallback onOpenChat;
+  final VoidCallback onOpenConversations;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +73,7 @@ class NavDrawer extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadii.pill),
                   onTap: () {
                     Navigator.of(context).pop();
-                    onOpenChat();
+                    onOpenConversations();
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),

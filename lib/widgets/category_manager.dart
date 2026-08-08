@@ -34,6 +34,31 @@ class _CategoryManagerState extends State<CategoryManager> {
     _controller.clear();
   }
 
+  Future<void> _confirmDelete(String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.paper,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.modal)),
+        title: Text('Delete category?', style: AppTextStyles.cardHeading()),
+        content: Text(
+          'This removes "$name" from your category list. Existing transactions keep this label.',
+          style: AppTextStyles.body(),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Delete', style: AppTextStyles.manrope(color: AppColors.clay, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      widget.appState.deleteCategory(isIncome: _type == TransactionType.income, name: name);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final categories = _type == TransactionType.income
@@ -63,9 +88,19 @@ class _CategoryManagerState extends State<CategoryManager> {
             children: [
               for (final c in categories)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   decoration: BoxDecoration(color: AppColors.sageTint, borderRadius: BorderRadius.circular(AppRadii.pill)),
-                  child: Text(c, style: AppTextStyles.manrope(fontWeight: FontWeight.w600, fontSize: 13)),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(c, style: AppTextStyles.manrope(fontWeight: FontWeight.w600, fontSize: 13)),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () => _confirmDelete(c),
+                        child: Icon(Icons.close, size: 14, color: AppColors.ink60),
+                      ),
+                    ],
+                  ),
                 ),
             ],
           ),

@@ -10,10 +10,11 @@ import '../widgets/chat_bubble.dart';
 /// Full-screen on mobile — see STYLE_GUIDE.md § Chat drawer
 /// ("Full width on smaller screens").
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.appState, this.onOpenSettings});
+  const ChatScreen({super.key, required this.appState, this.onOpenSettings, this.onTransactionTap});
 
   final AppState appState;
   final VoidCallback? onOpenSettings;
+  final ValueChanged<int>? onTransactionTap;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -55,13 +56,13 @@ class _ChatScreenState extends State<ChatScreen> {
       timestamp: DateTime.now(),
     ));
     _controller.clear();
-    await _requestReply();
+    await _requestReply(text);
   }
 
   /// Sends the current chat history to OpenRouter and appends the reply.
   /// Split out from [_send] so a failed request can be retried — via the
   /// error banner's Retry chip — without re-adding the user's message.
-  Future<void> _requestReply() async {
+  Future<void> _requestReply(String userMessage) async {
     if (_sending) return;
     final appState = widget.appState;
     setState(() {
@@ -74,10 +75,12 @@ class _ChatScreenState extends State<ChatScreen> {
       final reply = await _service.sendMessage(
         apiKey: appState.apiConfig.apiKey ?? '',
         modelSlug: appState.apiConfig.modelSlug,
-        history: appState.chatHistory,
+        userMessage: userMessage,
+        history: appState.activeMessages,
         ledger: appState.transactions,
         incomeCategories: appState.incomeCategories,
         expenseCategories: appState.expenseCategories,
+        profile: appState.profile,
       );
       if (reply.transaction != null) {
         appState.addTransaction(reply.transaction!);
@@ -127,6 +130,12 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => setState(() => widget.appState.startNewConversation()),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -134,7 +143,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const Divider(height: 1),
             if (!hasKey) _NoKeyBanner(onOpenSettings: widget.onOpenSettings),
             Expanded(
-              child: appState.chatHistory.isEmpty
+              child: appState.activeMessages.isEmpty
                   ? _EmptyState(onSuggestion: (s) {
                       _controller.text = s;
                       if (hasKey) _send();
@@ -142,8 +151,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   : ListView.builder(
                       controller: _scrollController,
                       padding: const EdgeInsets.all(20),
-                      itemCount: appState.chatHistory.length,
-                      itemBuilder: (context, i) => ChatBubble(message: appState.chatHistory[i]),
+                      itemCount: appState.activeMessages.length,
+                      itemBuilder: (context, i) => ChatBubble(
+                        message: appState.activeMessages[i],
+                        onTransactionTap: widget.onTransactionTap ?? (_) {},
+                        transactions: appState.transactions,
+                      ),
                     ),
             ),
             if (_sending)
@@ -161,7 +174,17 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     const SizedBox(width: 8),
                     GestureDetector(
-                      onTap: _requestReply,
+                      onTap: () {
+                        // Extract last user message from history for retry
+                        String lastUserMessage = '';
+                        for (final msg in widget.appState.activeMessages.reversed) {
+                          if (msg.role == ChatRole.user) {
+                            lastUserMessage = msg.content;
+                            break;
+                          }
+                        }
+                        _requestReply(lastUserMessage);
+                      },
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(

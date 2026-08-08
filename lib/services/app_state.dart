@@ -2,25 +2,43 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/api_config.dart';
 import '../models/chat_message.dart';
+import '../models/conversation.dart';
 import '../models/profile.dart';
 import '../models/transaction.dart';
+import 'formatters.dart';
 import 'persistence_service.dart';
 
-enum CashFlowRange { sevenDays, thirtyDays, threeMonths, twelveMonths }
+enum CashFlowRange { sevenDays, sixMonths, twelveMonths }
 
 extension CashFlowRangeLabel on CashFlowRange {
   String get shortLabel => switch (this) {
         CashFlowRange.sevenDays => '7D',
-        CashFlowRange.thirtyDays => '30D',
-        CashFlowRange.threeMonths => '3M',
+        CashFlowRange.sixMonths => '6M',
         CashFlowRange.twelveMonths => '12M',
       };
 
   String get caption => switch (this) {
         CashFlowRange.sevenDays => 'Last 7 days',
-        CashFlowRange.thirtyDays => 'Last 30 days',
-        CashFlowRange.threeMonths => 'Last 3 months',
+        CashFlowRange.sixMonths => 'Last 6 months',
         CashFlowRange.twelveMonths => 'Last 12 months',
+      };
+}
+
+enum StatsRange { day, week, month, year }
+
+extension StatsRangeLabel on StatsRange {
+  String get shortLabel => switch (this) {
+        StatsRange.day => '1D',
+        StatsRange.week => '1W',
+        StatsRange.month => '1M',
+        StatsRange.year => '1Y',
+      };
+
+  String get caption => switch (this) {
+        StatsRange.day => 'Today',
+        StatsRange.week => 'This week',
+        StatsRange.month => 'This month',
+        StatsRange.year => 'This year',
       };
 }
 
@@ -35,7 +53,10 @@ class AppState extends ChangeNotifier {
         incomeCategories = _persistence.loadIncomeCategories(),
         expenseCategories = _persistence.loadExpenseCategories(),
         apiConfig = _persistence.loadApiConfig(),
-        chatHistory = _persistence.loadChatHistory();
+        conversations = _persistence.loadConversations(),
+        activeConversationId = _determineActiveConversationId(_persistence.loadConversations()) {
+    setAppCurrency(profile.currencyCode);
+  }
 
   final PersistenceService _persistence;
 
@@ -44,7 +65,37 @@ class AppState extends ChangeNotifier {
   List<String> incomeCategories;
   List<String> expenseCategories;
   ApiConfig apiConfig;
-  List<ChatMessage> chatHistory;
+  List<Conversation> conversations;
+  String? activeConversationId;
+
+  static String? _determineActiveConversationId(List<Conversation> conversations) {
+    if (conversations.isEmpty) return null;
+    Conversation? mostRecent;
+    for (final c in conversations) {
+      if (mostRecent == null) {
+        mostRecent = c;
+      } else {
+        final mostRecentTimestamp = mostRecent.messages.isNotEmpty
+            ? mostRecent.messages.last.timestamp
+            : mostRecent.createdAt;
+        final currentTimestamp = c.messages.isNotEmpty ? c.messages.last.timestamp : c.createdAt;
+        if (currentTimestamp.isAfter(mostRecentTimestamp)) {
+          mostRecent = c;
+        }
+      }
+    }
+    return mostRecent?.id;
+  }
+
+  List<ChatMessage> get activeMessages {
+    if (activeConversationId == null) return [];
+    for (final c in conversations) {
+      if (c.id == activeConversationId) {
+        return c.messages;
+      }
+    }
+    return [];
+  }
 
   double get totalIncome => transactions
       .where((t) => t.type == TransactionType.income)
@@ -62,6 +113,28 @@ class AppState extends ChangeNotifier {
     return sorted;
   }
 
+  (double income, double expense) totalsForRange(StatsRange range) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final DateTime periodStart = switch (range) {
+      StatsRange.day => todayStart,
+      StatsRange.week => todayStart.subtract(Duration(days: todayStart.weekday - 1)),
+      StatsRange.month => DateTime(now.year, now.month, 1),
+      StatsRange.year => DateTime(now.year, 1, 1),
+    };
+    double income = 0;
+    double expense = 0;
+    for (final t in transactions) {
+      if (t.date.isBefore(periodStart)) continue;
+      if (t.type == TransactionType.income) {
+        income += t.amount;
+      } else {
+        expense += t.amount;
+      }
+    }
+    return (income, expense);
+  }
+
   /// Income/expense totals bucketed for the given [range], oldest first.
   /// Day/week buckets are fixed-size; month buckets follow calendar months
   /// so each one reflects a true month regardless of length.
@@ -69,10 +142,8 @@ class AppState extends ChangeNotifier {
     switch (range) {
       case CashFlowRange.sevenDays:
         return _bucketedByDays(bucketSizeDays: 1, count: 7);
-      case CashFlowRange.thirtyDays:
-        return _bucketedByDays(bucketSizeDays: 1, count: 30);
-      case CashFlowRange.threeMonths:
-        return _bucketedByDays(bucketSizeDays: 7, count: 13);
+      case CashFlowRange.sixMonths:
+        return _monthlyBuckets(6);
       case CashFlowRange.twelveMonths:
         return _monthlyBuckets(12);
     }
@@ -147,6 +218,7 @@ class AppState extends ChangeNotifier {
 
   void updateProfile(Profile profile) {
     this.profile = profile;
+    setAppCurrency(profile.currencyCode);
     _persistence.saveProfile(profile);
     notifyListeners();
   }
@@ -166,6 +238,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void deleteCategory({required bool isIncome, required String name}) {
+    if (isIncome) {
+      incomeCategories = incomeCategories.where((c) => c != name).toList();
+      _persistence.saveIncomeCategories(incomeCategories);
+    } else {
+      expenseCategories = expenseCategories.where((c) => c != name).toList();
+      _persistence.saveExpenseCategories(expenseCategories);
+    }
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
   void updateApiConfig(ApiConfig config) {
     apiConfig = config;
     _persistence.saveApiConfig(config);
@@ -173,8 +257,57 @@ class AppState extends ChangeNotifier {
   }
 
   void addChatMessage(ChatMessage message) {
-    chatHistory = [...chatHistory, message];
-    _persistence.saveChatHistory(chatHistory);
+    // Lazily create a new conversation if none is active.
+    if (activeConversationId == null) {
+      // Derive title from message content (first ~40 chars).
+      String deriveTitle(String content) {
+        final trimmed = content.trim();
+        if (trimmed.length <= 40) {
+          return trimmed;
+        }
+        return '${trimmed.substring(0, 40)}…';
+      }
+
+      final newConversation = Conversation(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: deriveTitle(message.content),
+        createdAt: DateTime.now(),
+        messages: [message],
+      );
+      conversations = [newConversation, ...conversations];
+      activeConversationId = newConversation.id;
+    } else {
+      // Append message to active conversation.
+      conversations = [
+        for (final c in conversations)
+          if (c.id == activeConversationId)
+            c.copyWith(messages: [...c.messages, message])
+          else
+            c,
+      ];
+    }
+    _persistence.saveConversations(conversations);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  void startNewConversation() {
+    activeConversationId = null;
+    notifyListeners();
+  }
+
+  void openConversation(String id) {
+    activeConversationId = id;
+    notifyListeners();
+  }
+
+  void deleteConversation(String id) {
+    conversations = conversations.where((c) => c.id != id).toList();
+    if (activeConversationId == id) {
+      activeConversationId = null;
+    }
+    _persistence.saveConversations(conversations);
+    HapticFeedback.lightImpact();
     notifyListeners();
   }
 
@@ -185,7 +318,8 @@ class AppState extends ChangeNotifier {
     incomeCategories = _persistence.loadIncomeCategories();
     expenseCategories = _persistence.loadExpenseCategories();
     apiConfig = ApiConfig();
-    chatHistory = [];
+    conversations = [];
+    activeConversationId = null;
     notifyListeners();
   }
 }

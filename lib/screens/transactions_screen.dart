@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
-import '../widgets/category_manager.dart';
+import '../widgets/day_grouped_transactions.dart';
 import '../widgets/transaction_form_sheet.dart';
-import '../widgets/transaction_row.dart';
+import 'transaction_search_screen.dart';
 
 class TransactionsScreen extends StatelessWidget {
   const TransactionsScreen({super.key, required this.appState, this.highlightId = -1});
@@ -24,30 +24,33 @@ class TransactionsScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Transactions', style: AppTextStyles.pageHeading()),
-              ElevatedButton.icon(
-                onPressed: () => showTransactionFormSheet(context, appState: appState),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add'),
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12)),
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    tooltip: 'Search transactions',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => TransactionSearchScreen(appState: appState)),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => showTransactionFormSheet(context, appState: appState),
+                    icon: const Icon(Icons.add, size: 22),
+                    label: const Text('Add'),
+                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16)),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 20),
-          if (transactions.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Text('No transactions yet. Add one to get started.', style: AppTextStyles.body()),
-            )
-          else
-            ...transactions.map(
-              (t) => TransactionRow(
-                transaction: t,
-                highlighted: t.id == highlightId,
-                onTap: () => showTransactionFormSheet(context, appState: appState, existing: t),
-              ),
-            ),
-          const SizedBox(height: 28),
-          CategoryManager(appState: appState),
+          DayGroupedTransactions(
+            transactions: transactions,
+            initialDayCount: 5,
+            highlightId: highlightId,
+            emptyLabel: 'No transactions yet. Add one to get started.',
+            onTransactionTap: (t) => showTransactionFormSheet(context, appState: appState, existing: t),
+          ),
         ],
       ),
     );

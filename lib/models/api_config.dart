@@ -1,4 +1,4 @@
-const String defaultModelSlug = 'openai/gpt-4o-mini';
+const String defaultModelSlug = 'inclusionai/ling-3.0-tiny:free';
 
 class ApiConfig {
   ApiConfig({this.apiKey, this.modelSlug = defaultModelSlug});

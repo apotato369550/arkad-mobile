@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'buttons.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
+import '../services/formatters.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
@@ -138,7 +139,10 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
               controller: _amountController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               style: AppTextStyles.dmMono(),
-              decoration: const InputDecoration(labelText: 'Amount', prefixText: '\$ '),
+              decoration: InputDecoration(
+                labelText: 'Amount',
+                prefixText: '${currencySymbolFor(widget.appState.profile.currencyCode)} ',
+              ),
             ),
             const SizedBox(height: 18),
             Text('Category', style: AppTextStyles.metadata()),

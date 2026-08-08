@@ -27,7 +27,11 @@ class TransactionRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
           child: Row(
             children: [
-              IconTile(icon: iconForCategory(transaction.category)),
+              IconTile(
+                icon: iconForCategory(transaction.category),
+                background: isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14),
+                foreground: isIncome ? AppColors.darkGreen : AppColors.clay,
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -50,7 +54,7 @@ class TransactionRow extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 formatSignedCurrency(transaction.amount, isIncome: isIncome),
-                style: AppTextStyles.amount(color: isIncome ? AppColors.darkGreen : AppColors.ink),
+                style: AppTextStyles.amount(color: isIncome ? AppColors.darkGreen : AppColors.clay),
               ),
             ],
           ),

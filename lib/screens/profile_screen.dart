@@ -2,42 +2,14 @@ import 'package:flutter/material.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
+import '../widgets/personal_basics_card.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, required this.appState});
 
   final AppState appState;
-
-  Future<void> _editName(BuildContext context) async {
-    final controller = TextEditingController(text: appState.profile.displayName);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.paper,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.modal)),
-        title: Text('Edit profile', style: AppTextStyles.cardHeading()),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(labelText: 'Display name'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (result != null && result.isNotEmpty) {
-      appState.updateProfile(appState.profile.copyWith(displayName: result));
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,11 +45,11 @@ class ProfileScreen extends StatelessWidget {
                 style: AppTextStyles.body(color: AppColors.ink60),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 14),
-              TextButton(onPressed: () => _editName(context), child: const Text('Edit profile')),
             ],
           ),
         ),
+        const SizedBox(height: 20),
+        PersonalBasicsCard(appState: appState),
         const SizedBox(height: 20),
         Row(
           children: [
