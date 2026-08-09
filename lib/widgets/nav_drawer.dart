@@ -30,25 +30,11 @@ class NavDrawer extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 28, 24, 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.darkGreen,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text('A',
-                        style: TextStyle(
-                            color: AppColors.pastelYellow,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 18)),
-                  ),
-                  const SizedBox(width: 12),
-                  Text('Arkad', style: AppTextStyles.fraunces(fontSize: 20, fontWeight: FontWeight.w600)),
-                ],
+              child: Image.asset(
+                'assets/icon/arkad-logo.png',
+                height: 32,
+                fit: BoxFit.contain,
+                alignment: Alignment.centerLeft,
               ),
             ),
             const SizedBox(height: 8),

@@ -41,6 +41,7 @@ dependencies:
   flutter_secure_storage: ^11.0.0
   flutter_markdown: ^0.7.7+1
   url_launcher: ^6.3.2
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:
@@ -65,6 +66,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/icon/arkad-logo.png
+    - assets/icon/arkad-icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -100,13 +105,13 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: "assets/icon/icon.png"
+  image_path: "assets/icon/arkad-icon.png"
   adaptive_icon_background: "#244F3A"
-  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  adaptive_icon_foreground: "assets/icon/arkad-icon.png"
 
 flutter_native_splash:
   color: "#F4F0E6"
-  image: "assets/icon/icon_foreground.png"
+  image: "assets/icon/arkad-icon.png"
   android_12:
-    image: "assets/icon/icon_foreground.png"
+    image: "assets/icon/arkad-icon.png"
     icon_background_color: "#F4F0E6"

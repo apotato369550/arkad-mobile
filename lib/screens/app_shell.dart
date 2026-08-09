@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'analysis_screen.dart';
 import 'app_view.dart';
 import 'categories_screen.dart';
 import 'chat_screen.dart';
@@ -79,6 +80,10 @@ class _AppShellState extends State<AppShell> {
         AppView.dashboard => DashboardScreen(
             appState: widget.appState,
             onTransactionTap: _goToTransaction,
+          ),
+        AppView.analysis => AnalysisScreen(
+            appState: widget.appState,
+            onOpenSettings: () => setState(() => _view = AppView.settings),
           ),
         AppView.transactions => TransactionsScreen(
             appState: widget.appState,

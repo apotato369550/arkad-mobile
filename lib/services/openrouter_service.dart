@@ -1,13 +1,17 @@
 import 'dart:convert';
+import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/profile.dart';
 import '../models/transaction.dart';
 import 'formatters.dart';
 
+enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, unknown }
+
 class OpenRouterException implements Exception {
-  OpenRouterException(this.message);
+  OpenRouterException(this.message, {this.kind = OpenRouterErrorKind.unknown});
   final String message;
+  final OpenRouterErrorKind kind;
   @override
   String toString() => message;
 }
@@ -32,6 +36,11 @@ class AgentReply {
 class OpenRouterService {
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   static const _transactionTag = 'arkad_transaction';
+
+  /// Shared Arkad persona voice, reused by the chat system prompt and the
+  /// one-shot analysis prompt.
+  static const _personaIntro =
+      "You are Arkad, named for the legendary richest man in Babylon — a patient, warm financial mentor, not a lecturing chatbot. You believe: a part of all one earns is theirs to keep (encourage saving before spending); money must be put to work, not left idle; guard savings from loss (favor sound, proven habits over speculation); a person's ability to earn is their greatest asset (encourage growth, not just cutting); plan for the future. Ground every answer in the user's actual data — their real transactions, categories, and goals — never generic platitudes when specifics are available. Be concise and actionable.";
 
   Future<AgentReply> sendMessage({
     required String apiKey,
@@ -62,6 +71,74 @@ class OpenRouterService {
         {'role': m.role == ChatRole.user ? 'user' : 'assistant', 'content': m.content},
     ];
 
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: messages,
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    final content = (choices.first['message']?['content'] as String?)?.trim() ?? '';
+    return _parseReply(content);
+  }
+
+  /// One-shot, non-chat analysis of a time-ranged view of the user's finances.
+  /// This is NOT a chat turn: no history, no transaction extraction, and the
+  /// response is returned as plain markdown (no arkad_transaction/arkad_refs
+  /// block parsing).
+  Future<String> analyzeFinances({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+    required DateTimeRange range,
+    required double totalIncome,
+    required double totalExpense,
+    required Map<String, double> expenseByCategory,
+    double? previousPeriodIncome,
+    double? previousPeriodExpense,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('No OpenRouter API key configured.');
+    }
+
+    final messages = [
+      {
+        'role': 'system',
+        'content': _buildAnalysisPrompt(
+          profile: profile,
+          range: range,
+          totalIncome: totalIncome,
+          totalExpense: totalExpense,
+          expenseByCategory: expenseByCategory,
+          previousPeriodIncome: previousPeriodIncome,
+          previousPeriodExpense: previousPeriodExpense,
+        ),
+      },
+    ];
+
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: messages,
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+  }
+
+  /// Performs the raw OpenRouter chat-completions HTTP call: builds the
+  /// request, classifies network/HTTP errors into an [OpenRouterException]
+  /// with the appropriate [OpenRouterErrorKind], and returns the decoded
+  /// JSON response body on success.
+  Future<Map<String, dynamic>> _postChatCompletion({
+    required String apiKey,
+    required String modelSlug,
+    required List<Map<String, String>> messages,
+  }) async {
     late http.Response response;
     try {
       response = await http.post(
@@ -74,26 +151,45 @@ class OpenRouterService {
         body: jsonEncode({'model': modelSlug, 'messages': messages}),
       );
     } catch (_) {
-      throw OpenRouterException('Could not reach OpenRouter. Check your connection.');
+      throw OpenRouterException(
+        'Could not reach OpenRouter. Check your connection.',
+        kind: OpenRouterErrorKind.network,
+      );
     }
 
     if (response.statusCode != 200) {
-      String detail = 'OpenRouter returned ${response.statusCode}.';
+      OpenRouterErrorKind kind;
+      String fallback;
+      switch (response.statusCode) {
+        case 401:
+          kind = OpenRouterErrorKind.invalidKey;
+          fallback = 'Your OpenRouter API key was rejected. Check it in Settings.';
+          break;
+        case 429:
+          kind = OpenRouterErrorKind.rateLimited;
+          fallback =
+              'OpenRouter is rate-limiting this model right now — free models often have low limits. Try again in a bit, or switch models in Settings.';
+          break;
+        default:
+          if (response.statusCode >= 500) {
+            kind = OpenRouterErrorKind.server;
+            fallback = 'OpenRouter is having issues right now. Try again shortly.';
+          } else {
+            kind = OpenRouterErrorKind.unknown;
+            fallback = 'OpenRouter returned ${response.statusCode}.';
+          }
+      }
+
+      String detail = fallback;
       try {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         final err = body['error'];
         if (err is Map && err['message'] is String) detail = err['message'] as String;
       } catch (_) {}
-      throw OpenRouterException(detail);
+      throw OpenRouterException(detail, kind: kind);
     }
 
-    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    final content = (choices.first['message']?['content'] as String?)?.trim() ?? '';
-    return _parseReply(content);
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   AgentReply _parseReply(String content) {
@@ -159,7 +255,7 @@ class OpenRouterService {
     final profileLines = _buildProfileSection(profile);
 
     return '''
-You are Arkad, named for the legendary richest man in Babylon — a patient, warm financial mentor, not a lecturing chatbot. You believe: a part of all one earns is theirs to keep (encourage saving before spending); money must be put to work, not left idle; guard savings from loss (favor sound, proven habits over speculation); a person's ability to earn is their greatest asset (encourage growth, not just cutting); plan for the future. Ground every answer in the user's actual data — their real transactions, categories, and goals — never generic platitudes when specifics are available. Be concise and actionable.
+$_personaIntro
 
 ${profileLines.isEmpty ? '' : '$profileLines\n'}The user's ledger currently has ${ledger.length} transactions. Total income: \$${totalIncome.toStringAsFixed(2)}. Total expenses: \$${totalExpense.toStringAsFixed(2)}. Relevant transactions:
 $transactionLines
@@ -204,6 +300,55 @@ Keep replies short, warm, and precise. Never fabricate transactions that weren't
 
     if (parts.isEmpty) return '';
     return 'About the user:\n${parts.map((p) => '- $p').join('\n')}\n';
+  }
+
+  /// Builds the system prompt for a one-shot, non-chat qualitative analysis
+  /// of a time-ranged view of the user's finances (see [analyzeFinances]).
+  String _buildAnalysisPrompt({
+    required Profile profile,
+    required DateTimeRange range,
+    required double totalIncome,
+    required double totalExpense,
+    required Map<String, double> expenseByCategory,
+    double? previousPeriodIncome,
+    double? previousPeriodExpense,
+  }) {
+    final net = totalIncome - totalExpense;
+
+    final categoryLines = expenseByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+
+    final comparisonLines = StringBuffer();
+    if (previousPeriodIncome != null || previousPeriodExpense != null) {
+      comparisonLines.writeln('\nPrevious period for comparison:');
+      if (previousPeriodIncome != null) {
+        comparisonLines.writeln('- Income: ${formatCurrency(previousPeriodIncome)}');
+      }
+      if (previousPeriodExpense != null) {
+        comparisonLines.writeln('- Expenses: ${formatCurrency(previousPeriodExpense)}');
+      }
+    }
+
+    final profileLines = _buildProfileSection(profile);
+
+    return '''
+$_personaIntro
+
+You are producing a one-shot qualitative analysis for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
+
+Period: ${formatDate(range.start)} to ${formatDate(range.end)}
+
+Total income: ${formatCurrency(totalIncome)}
+Total expenses: ${formatCurrency(totalExpense)}
+Net: ${formatCurrency(net)}
+
+Expense breakdown by category:
+${categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines}
+${comparisonLines.toString()}
+${profileLines.isEmpty ? '' : '\n$profileLines'}
+Respond in markdown only (no code fences around the whole response). Give qualitative commentary on how this period's activity aligns with the user's stated financial goal and savings target (if any), note any notable category concentration, and offer one or two concrete suggestions. Do NOT emit any ```$_transactionTag or ```arkad_refs code blocks — this is commentary only, not a ledger action.
+''';
   }
 
   /// Retrieves relevant transactions based on keyword/category/date matching.

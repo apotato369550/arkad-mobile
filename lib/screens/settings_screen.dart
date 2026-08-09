@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/api_config.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
@@ -6,6 +7,8 @@ import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
 import '../widgets/buttons.dart';
+
+const String _customModelSentinel = 'custom';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.appState});
@@ -20,6 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _apiKeyController;
   late final TextEditingController _modelController;
   bool _keyVisible = false;
+  late String _selectedKnownSlug;
 
   @override
   void initState() {
@@ -27,6 +31,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final config = widget.appState.apiConfig;
     _apiKeyController = TextEditingController(text: config.apiKey ?? '');
     _modelController = TextEditingController(text: config.modelSlug);
+    _selectedKnownSlug = knownFreeModelSlugs.contains(config.modelSlug) ? config.modelSlug : _customModelSentinel;
+  }
+
+  Future<void> _openOpenRouterKeysPage() async {
+    final uri = Uri.parse('https://openrouter.ai/keys');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      // Silently handle launch failures
+    }
   }
 
   @override
@@ -106,12 +122,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _modelController,
-                style: AppTextStyles.dmMono(),
-                decoration: const InputDecoration(labelText: 'Model slug'),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _openOpenRouterKeysPage,
+                child: RichText(
+                  text: TextSpan(
+                    style: AppTextStyles.metadata(),
+                    children: [
+                      const TextSpan(text: 'Tip: create a key with a credit limit at '),
+                      TextSpan(
+                        text: 'openrouter.ai/keys',
+                        style: AppTextStyles.metadata(color: AppColors.darkGreen).copyWith(
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      const TextSpan(text: ' instead of using an unrestricted one.'),
+                    ],
+                  ),
+                ),
               ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedKnownSlug,
+                style: AppTextStyles.dmMono(color: AppColors.ink),
+                decoration: const InputDecoration(labelText: 'Model'),
+                items: [
+                  for (final slug in knownFreeModelSlugs) DropdownMenuItem(value: slug, child: Text(slug)),
+                  const DropdownMenuItem(value: _customModelSentinel, child: Text('Custom (advanced)…')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _selectedKnownSlug = value;
+                    if (value != _customModelSentinel) {
+                      _modelController.text = value;
+                    }
+                  });
+                },
+              ),
+              if (_selectedKnownSlug == _customModelSentinel) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _modelController,
+                  style: AppTextStyles.dmMono(),
+                  decoration: const InputDecoration(labelText: 'Model slug'),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 children: [

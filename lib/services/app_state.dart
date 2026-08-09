@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
 import '../models/api_config.dart';
 import '../models/chat_message.dart';
@@ -181,6 +182,135 @@ class AppState extends ChangeNotifier {
     final income = List<double>.filled(count, 0.0);
     final expense = List<double>.filled(count, 0.0);
     for (final t in transactions) {
+      final idx = months.indexWhere((m) => m.year == t.date.year && m.month == t.date.month);
+      if (idx == -1) continue;
+      if (t.type == TransactionType.income) {
+        income[idx] += t.amount;
+      } else {
+        expense[idx] += t.amount;
+      }
+    }
+    return [for (var i = 0; i < count; i++) (months[i], income[i], expense[i])];
+  }
+
+  /// Normalizes an arbitrary [range] to whole-calendar-day bounds: the start
+  /// of [range.start]'s day (inclusive) through the start of the day AFTER
+  /// [range.end]'s day (exclusive), so any transaction dated on range.end's
+  /// calendar day is included.
+  (DateTime start, DateTime endExclusive) _normalizedBounds(DateTimeRange range) {
+    final start = DateTime(range.start.year, range.start.month, range.start.day);
+    final endDay = DateTime(range.end.year, range.end.month, range.end.day);
+    final endExclusive = endDay.add(const Duration(days: 1));
+    return (start, endExclusive);
+  }
+
+  /// Income/expense totals for an arbitrary [range], inclusive of both
+  /// endpoint calendar days.
+  (double income, double expense) totalsForDateRange(DateTimeRange range) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    double income = 0;
+    double expense = 0;
+    for (final t in transactions) {
+      if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
+      if (t.type == TransactionType.income) {
+        income += t.amount;
+      } else {
+        expense += t.amount;
+      }
+    }
+    return (income, expense);
+  }
+
+  /// Expense-only total per category within [range]. Categories with zero
+  /// expense in the range are omitted from the result map.
+  Map<String, double> expenseByCategory(DateTimeRange range) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    final totals = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.expense) continue;
+      if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
+      totals[t.category] = (totals[t.category] ?? 0) + t.amount;
+    }
+    return totals;
+  }
+
+  /// Bucketed income/expense series across [range], oldest first. Bucket
+  /// granularity auto-selects for readability: daily for spans <= 31 days,
+  /// weekly (7-day buckets anchored at range.start) for spans <= 180 days,
+  /// calendar-monthly beyond that.
+  List<(DateTime bucketStart, double income, double expense)> cashFlowForRange(
+    DateTimeRange range,
+  ) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    final spanDays = endExclusive.difference(start).inDays;
+    if (spanDays <= 31) {
+      return _dailyBucketsForRange(start, endExclusive);
+    } else if (spanDays <= 180) {
+      return _weeklyBucketsForRange(start, endExclusive);
+    } else {
+      return _monthlyBucketsForRange(start, endExclusive);
+    }
+  }
+
+  List<(DateTime, double, double)> _dailyBucketsForRange(
+    DateTime start,
+    DateTime endExclusive,
+  ) {
+    final count = endExclusive.difference(start).inDays;
+    final income = List<double>.filled(count, 0.0);
+    final expense = List<double>.filled(count, 0.0);
+    for (final t in transactions) {
+      final day = DateTime(t.date.year, t.date.month, t.date.day);
+      if (day.isBefore(start) || !day.isBefore(endExclusive)) continue;
+      final idx = day.difference(start).inDays;
+      if (idx < 0 || idx >= count) continue;
+      if (t.type == TransactionType.income) {
+        income[idx] += t.amount;
+      } else {
+        expense[idx] += t.amount;
+      }
+    }
+    return [
+      for (var i = 0; i < count; i++) (start.add(Duration(days: i)), income[i], expense[i]),
+    ];
+  }
+
+  List<(DateTime, double, double)> _weeklyBucketsForRange(
+    DateTime start,
+    DateTime endExclusive,
+  ) {
+    final totalDays = endExclusive.difference(start).inDays;
+    final count = (totalDays / 7).ceil();
+    final income = List<double>.filled(count, 0.0);
+    final expense = List<double>.filled(count, 0.0);
+    for (final t in transactions) {
+      final day = DateTime(t.date.year, t.date.month, t.date.day);
+      if (day.isBefore(start) || !day.isBefore(endExclusive)) continue;
+      final idx = day.difference(start).inDays ~/ 7;
+      if (idx < 0 || idx >= count) continue;
+      if (t.type == TransactionType.income) {
+        income[idx] += t.amount;
+      } else {
+        expense[idx] += t.amount;
+      }
+    }
+    return [
+      for (var i = 0; i < count; i++) (start.add(Duration(days: 7 * i)), income[i], expense[i]),
+    ];
+  }
+
+  List<(DateTime, double, double)> _monthlyBucketsForRange(
+    DateTime start,
+    DateTime endExclusive,
+  ) {
+    final lastInclusiveDay = endExclusive.subtract(const Duration(days: 1));
+    final count =
+        (lastInclusiveDay.year - start.year) * 12 + (lastInclusiveDay.month - start.month) + 1;
+    final months = List.generate(count, (i) => DateTime(start.year, start.month + i, 1));
+    final income = List<double>.filled(count, 0.0);
+    final expense = List<double>.filled(count, 0.0);
+    for (final t in transactions) {
+      if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
       final idx = months.indexWhere((m) => m.year == t.date.year && m.month == t.date.month);
       if (idx == -1) continue;
       if (t.type == TransactionType.income) {
