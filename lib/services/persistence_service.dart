@@ -2,12 +2,15 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/analysis_period.dart';
 import '../models/api_config.dart';
 import '../models/category.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/profile.dart';
+import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
+import 'app_config.dart';
 
 /// Versioned local persistence, mirroring the web app's localStorage keys
 /// (see STYLE_GUIDE.md § Persistence keys) so a future migration can bump
@@ -27,6 +30,8 @@ class PersistenceService {
   static const _apiConfigKey = 'arkad:api-config:v1';
   static const _conversationsKey = 'arkad:conversations:v1';
   static const _chatHistoryKey = 'arkad:chat-history:v1';
+  static const _savedAnalysesKey = 'arkad:saved-analyses:v1';
+  static const _analysisRequestLogKey = 'arkad:analysis-request-log:v1';
   static const _secureApiKeyKey = 'arkad_api_key';
   // Bounds every secure-storage call: Keystore/libsecret access can in
   // principle stall (platform prompts, a broken keyring service), and that
@@ -73,14 +78,16 @@ class PersistenceService {
     return PersistenceService._(prefs, secureStorage, apiKey);
   }
 
+  /// Sample data is a debug-mode convenience only — release builds start
+  /// from an empty ledger when there's nothing stored yet.
   List<LedgerTransaction> loadTransactions() {
     final raw = _prefs.getString(_transactionsKey);
-    if (raw == null) return _seedTransactions();
+    if (raw == null) return AppConfig.isDebugMode ? _seedTransactions() : [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
       return list.map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>)).toList();
     } catch (_) {
-      return _seedTransactions();
+      return AppConfig.isDebugMode ? _seedTransactions() : [];
     }
   }
 
@@ -195,6 +202,44 @@ class PersistenceService {
     );
   }
 
+  List<SavedAnalysis> loadSavedAnalyses() {
+    final raw = _prefs.getString(_savedAnalysesKey);
+    if (raw == null) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveSavedAnalyses(List<SavedAnalysis> analyses) {
+    return _prefs.setString(
+      _savedAnalysesKey,
+      jsonEncode(analyses.map((a) => a.toJson()).toList()),
+    );
+  }
+
+  Map<AnalysisPeriod, DateTime> loadAnalysisRequestLog() {
+    final raw = _prefs.getString(_analysisRequestLogKey);
+    if (raw == null) return {};
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return json.map(
+        (key, value) => MapEntry(AnalysisPeriod.values.byName(key), DateTime.parse(value as String)),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveAnalysisRequestLog(Map<AnalysisPeriod, DateTime> log) {
+    return _prefs.setString(
+      _analysisRequestLogKey,
+      jsonEncode(log.map((period, date) => MapEntry(period.name, date.toIso8601String()))),
+    );
+  }
+
   Future<void> clearAll() async {
     _cachedApiKey = null;
     try {
@@ -208,15 +253,21 @@ class PersistenceService {
       _prefs.remove(_apiConfigKey),
       _prefs.remove(_conversationsKey),
       _prefs.remove(_chatHistoryKey),
+      _prefs.remove(_savedAnalysesKey),
+      _prefs.remove(_analysisRequestLogKey),
     ]);
   }
 
-  /// A year of recurring, realistic demo activity — payroll (with a
-  /// mid-year raise), rent, subscriptions, groceries, dining, transport,
-  /// entertainment, health, occasional travel, freelance income, and a
-  /// December bonus — so a fresh install has enough history to populate
-  /// every cash flow chart range (7D/6M/12M) and several pages of
-  /// recent activity. Seeded RNG for jitter only — dates and cadence are
+  /// A year of recurring, realistic demo activity — biweekly salary (with a
+  /// mid-year raise), a smaller biweekly allowance, occasional freelance
+  /// wage and gift income, a December bonus, rent, utilities, subscriptions,
+  /// groceries, dining, transport, entertainment, health, and occasional
+  /// travel — so a fresh install has enough history to populate every cash
+  /// flow chart range (7D/6M/12M) and several pages of recent activity. The
+  /// most recent ~3 months get much denser day-to-day coverage (near-daily
+  /// dining/transport) than the rest of the year, since the analysis
+  /// feature requires at least half the days in a requested period to have
+  /// activity. Seeded RNG for jitter only — dates and cadence are
   /// deterministic.
   List<LedgerTransaction> _seedTransactions() {
     final random = Random(42);
@@ -241,6 +292,8 @@ class PersistenceService {
     const healthMerchants = ['CVS Pharmacy', 'Walgreens', 'City Dental', 'Riverside Urgent Care'];
     const travelMerchants = ['Delta Airlines', 'Airbnb', 'Marriott Hotels'];
     const subscriptions = [('Spotify', 11.99), ('Netflix', 15.49), ('Iron Peak Gym', 42.0)];
+    const utilityMerchant = 'Riverside Water Co.';
+    const giftOccasions = ['Birthday gift', 'Holiday gift'];
 
     void addIfPast(DateTime date, String merchant, String category, double amount, TransactionType type) {
       if (date.isAfter(now)) return;
@@ -259,16 +312,23 @@ class PersistenceService {
       final monthNum = now.month - monthsAgo;
       final daysInMonth = DateTime(monthYear, monthNum + 1, 0).day;
       DateTime onDay(int day) => DateTime(monthYear, monthNum, day.clamp(1, daysInMonth));
+      // The last ~3 months get much denser daily coverage.
+      final isRecent = monthsAgo <= 2;
 
       // A modest raise kicks in for the more recent half of the year.
       final payrollBase = monthsAgo <= 5 ? 1750.0 : 1600.0;
-      addIfPast(onDay(1), 'Employer Payroll', 'Income', payrollBase + random.nextInt(120), TransactionType.income);
-      addIfPast(onDay(15), 'Employer Payroll', 'Income', payrollBase + random.nextInt(120), TransactionType.income);
+      addIfPast(onDay(1), 'Employer Payroll', 'Salary', payrollBase + random.nextInt(120), TransactionType.income);
+      addIfPast(onDay(15), 'Employer Payroll', 'Salary', payrollBase + random.nextInt(120), TransactionType.income);
+      // Smaller recurring biweekly allowance, every month.
+      addIfPast(onDay(8), 'Family Allowance', 'Allowance', 50.0 + random.nextInt(80), TransactionType.income);
+      addIfPast(onDay(22), 'Family Allowance', 'Allowance', 50.0 + random.nextInt(80), TransactionType.income);
       addIfPast(onDay(1), 'Maple Court Apartments', 'Housing', 1450, TransactionType.expense);
       addIfPast(onDay(3), 'Metro Transit', 'Transport', 45, TransactionType.expense);
+      addIfPast(onDay(10), utilityMerchant, 'Utilities', 25.0 + random.nextInt(35), TransactionType.expense);
       for (final sub in subscriptions) {
         addIfPast(onDay(5), sub.$1, 'Subscriptions', sub.$2, TransactionType.expense);
       }
+      // Groceries: weekly all year.
       for (var day = 4; day <= daysInMonth; day += 7) {
         addIfPast(
           onDay(day),
@@ -278,23 +338,66 @@ class PersistenceService {
           TransactionType.expense,
         );
       }
-      for (var day = 2; day <= daysInMonth; day += 4) {
-        addIfPast(
-          onDay(day),
-          diningMerchants[random.nextInt(diningMerchants.length)],
-          'Dining',
-          9.0 + random.nextInt(28),
-          TransactionType.expense,
-        );
+      // Dining: near-daily on weekdays for the recent stretch, every few days otherwise.
+      if (isRecent) {
+        for (var day = 1; day <= daysInMonth; day++) {
+          final date = onDay(day);
+          if (date.weekday > DateTime.friday) continue;
+          if (random.nextDouble() >= 0.85) continue;
+          addIfPast(
+            date,
+            diningMerchants[random.nextInt(diningMerchants.length)],
+            'Dining',
+            9.0 + random.nextInt(28),
+            TransactionType.expense,
+          );
+        }
+        // Weekend dining, less frequent.
+        for (var day = 1; day <= daysInMonth; day++) {
+          final date = onDay(day);
+          if (date.weekday <= DateTime.friday) continue;
+          if (random.nextDouble() >= 0.5) continue;
+          addIfPast(
+            date,
+            diningMerchants[random.nextInt(diningMerchants.length)],
+            'Dining',
+            9.0 + random.nextInt(28),
+            TransactionType.expense,
+          );
+        }
+      } else {
+        for (var day = 2; day <= daysInMonth; day += 4) {
+          addIfPast(
+            onDay(day),
+            diningMerchants[random.nextInt(diningMerchants.length)],
+            'Dining',
+            9.0 + random.nextInt(28),
+            TransactionType.expense,
+          );
+        }
       }
-      for (var day = 10; day <= daysInMonth; day += 11) {
-        addIfPast(
-          onDay(day),
-          transportMerchants[random.nextInt(transportMerchants.length)],
-          'Transport',
-          12.0 + random.nextInt(18),
-          TransactionType.expense,
-        );
+      // Transport: several times a week for the recent stretch, existing cadence otherwise.
+      if (isRecent) {
+        for (var day = 1; day <= daysInMonth; day++) {
+          if (random.nextDouble() >= 0.45) continue;
+          addIfPast(
+            onDay(day),
+            transportMerchants[random.nextInt(transportMerchants.length)],
+            'Transport',
+            12.0 + random.nextInt(18),
+            TransactionType.expense,
+          );
+        }
+      } else {
+        for (var day = 10; day <= daysInMonth; day += 11) {
+          addIfPast(
+            onDay(day),
+            transportMerchants[random.nextInt(transportMerchants.length)],
+            'Transport',
+            12.0 + random.nextInt(18),
+            TransactionType.expense,
+          );
+        }
       }
       for (var day = 8; day <= daysInMonth; day += 13) {
         addIfPast(
@@ -335,14 +438,24 @@ class PersistenceService {
           TransactionType.expense,
         );
       }
-      // Freelance income: roughly a third of months.
+      // Freelance/hourly wage income: roughly a third of months.
       if (random.nextDouble() < 0.35) {
-        addIfPast(onDay(20 + random.nextInt(8)), 'Freelance client', 'Income', 150.0 + random.nextInt(500),
+        addIfPast(onDay(20 + random.nextInt(8)), 'Freelance client', 'Wage', 150.0 + random.nextInt(500),
             TransactionType.income);
+      }
+      // Occasional gift income: a few times a year.
+      if (random.nextDouble() < 0.15) {
+        addIfPast(
+          onDay(12 + random.nextInt(12)),
+          giftOccasions[random.nextInt(giftOccasions.length)],
+          'Gift',
+          20.0 + random.nextInt(130),
+          TransactionType.income,
+        );
       }
       // Year-end bonus.
       if (monthNum == 12) {
-        addIfPast(onDay(20), 'Employer Payroll', 'Income', 900.0 + random.nextInt(600), TransactionType.income);
+        addIfPast(onDay(20), 'Employer Payroll', 'Bonus', 900.0 + random.nextInt(600), TransactionType.income);
       }
     }
 

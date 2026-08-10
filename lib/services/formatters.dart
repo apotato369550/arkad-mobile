@@ -6,6 +6,7 @@ final DateFormat _dayLabel = DateFormat('EEE');
 final DateFormat _dayNumber = DateFormat('d');
 final DateFormat _monthDay = DateFormat('MMM d');
 final DateFormat _monthLabel = DateFormat('MMM');
+final DateFormat _mdy = DateFormat('MM-dd-yyyy');
 
 String formatCurrency(double amount) => _currency.format(amount);
 
@@ -40,6 +41,7 @@ String formatDayLabel(DateTime date) => _dayLabel.format(date);
 String formatDayNumber(DateTime date) => _dayNumber.format(date);
 String formatMonthDay(DateTime date) => _monthDay.format(date);
 String formatMonthLabel(DateTime date) => _monthLabel.format(date);
+String formatMDY(DateTime date) => _mdy.format(date);
 
 void setAppCurrency(String currencyCode) {
   _currency = NumberFormat.simpleCurrency(name: currencyCode);

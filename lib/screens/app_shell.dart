@@ -83,7 +83,6 @@ class _AppShellState extends State<AppShell> {
           ),
         AppView.analysis => AnalysisScreen(
             appState: widget.appState,
-            onOpenSettings: () => setState(() => _view = AppView.settings),
           ),
         AppView.transactions => TransactionsScreen(
             appState: widget.appState,

@@ -1,13 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
+import '../models/analysis_period.dart';
 import '../models/api_config.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/profile.dart';
+import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
+import 'app_config.dart';
 import 'formatters.dart';
+import 'openrouter_service.dart';
 import 'persistence_service.dart';
+
+/// Thrown by [AppState.requestAnalysis] when a request is rejected before
+/// any network call is made (cooldown not elapsed, or not enough recorded
+/// activity in the period).
+class AnalysisRequestException implements Exception {
+  AnalysisRequestException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
 
 enum CashFlowRange { sevenDays, sixMonths, twelveMonths }
 
@@ -55,11 +71,14 @@ class AppState extends ChangeNotifier {
         expenseCategories = _persistence.loadExpenseCategories(),
         apiConfig = _persistence.loadApiConfig(),
         conversations = _persistence.loadConversations(),
-        activeConversationId = _determineActiveConversationId(_persistence.loadConversations()) {
+        activeConversationId = _determineActiveConversationId(_persistence.loadConversations()),
+        savedAnalyses = _persistence.loadSavedAnalyses(),
+        _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
     setAppCurrency(profile.currencyCode);
   }
 
   final PersistenceService _persistence;
+  final OpenRouterService _openRouter = OpenRouterService();
 
   List<LedgerTransaction> transactions;
   Profile profile;
@@ -68,6 +87,24 @@ class AppState extends ChangeNotifier {
   ApiConfig apiConfig;
   List<Conversation> conversations;
   String? activeConversationId;
+  List<SavedAnalysis> savedAnalyses;
+  Map<AnalysisPeriod, DateTime> _analysisRequestLog;
+
+  /// The OpenRouter key all calls should use: a debug-mode `.env` key takes
+  /// priority (so development doesn't require configuring Settings), falling
+  /// back to the user's own BYOK key.
+  String get effectiveApiKey {
+    if (AppConfig.isDebugMode && AppConfig.debugApiKey != null) {
+      return AppConfig.debugApiKey!;
+    }
+    return apiConfig.apiKey ?? '';
+  }
+
+  /// Whether a call can be made right now — debug key in debug mode,
+  /// otherwise the user's own BYOK key. The one place UI should check
+  /// key-availability instead of reading [ApiConfig.hasKey] directly, which
+  /// only reflects the user-entered key and knows nothing about debug mode.
+  bool get hasApiKey => effectiveApiKey.trim().isNotEmpty;
 
   static String? _determineActiveConversationId(List<Conversation> conversations) {
     if (conversations.isEmpty) return null;
@@ -142,21 +179,41 @@ class AppState extends ChangeNotifier {
   List<(DateTime bucketStart, double income, double expense)> cashFlow(CashFlowRange range) {
     switch (range) {
       case CashFlowRange.sevenDays:
-        return _bucketedByDays(bucketSizeDays: 1, count: 7);
+        return _bucketedByDays(rangeStart: _cashFlowStart(range), bucketSizeDays: 1, count: 7);
       case CashFlowRange.sixMonths:
-        return _monthlyBuckets(6);
+        return _monthlyBuckets(start: _cashFlowStart(range), count: 6);
       case CashFlowRange.twelveMonths:
-        return _monthlyBuckets(12);
+        return _monthlyBuckets(start: _cashFlowStart(range), count: 12);
     }
   }
 
+  /// The start bound each [CashFlowRange] resolves to as of now — the single
+  /// source of truth shared by [cashFlow]'s bucketing and
+  /// [dateTimeRangeForCashFlow].
+  DateTime _cashFlowStart(CashFlowRange range) {
+    final now = DateTime.now();
+    switch (range) {
+      case CashFlowRange.sevenDays:
+        final todayStart = DateTime(now.year, now.month, now.day);
+        return todayStart.subtract(const Duration(days: 6));
+      case CashFlowRange.sixMonths:
+        return DateTime(now.year, now.month - 5, 1);
+      case CashFlowRange.twelveMonths:
+        return DateTime(now.year, now.month - 11, 1);
+    }
+  }
+
+  /// The [DateTimeRange] a given [CashFlowRange] resolves to (e.g. for the
+  /// Analysis screen's pie chart) — same bounds [cashFlow] buckets over.
+  DateTimeRange dateTimeRangeForCashFlow(CashFlowRange range) {
+    return DateTimeRange(start: _cashFlowStart(range), end: DateTime.now());
+  }
+
   List<(DateTime, double, double)> _bucketedByDays({
+    required DateTime rangeStart,
     required int bucketSizeDays,
     required int count,
   }) {
-    final today = DateTime.now();
-    final todayStart = DateTime(today.year, today.month, today.day);
-    final rangeStart = todayStart.subtract(Duration(days: bucketSizeDays * count - 1));
     final income = List<double>.filled(count, 0.0);
     final expense = List<double>.filled(count, 0.0);
     for (final t in transactions) {
@@ -176,9 +233,8 @@ class AppState extends ChangeNotifier {
     ];
   }
 
-  List<(DateTime, double, double)> _monthlyBuckets(int count) {
-    final now = DateTime.now();
-    final months = List.generate(count, (i) => DateTime(now.year, now.month - (count - 1 - i), 1));
+  List<(DateTime, double, double)> _monthlyBuckets({required DateTime start, required int count}) {
+    final months = List.generate(count, (i) => DateTime(start.year, start.month + i, 1));
     final income = List<double>.filled(count, 0.0);
     final expense = List<double>.filled(count, 0.0);
     for (final t in transactions) {
@@ -228,6 +284,19 @@ class AppState extends ChangeNotifier {
     final totals = <String, double>{};
     for (final t in transactions) {
       if (t.type != TransactionType.expense) continue;
+      if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
+      totals[t.category] = (totals[t.category] ?? 0) + t.amount;
+    }
+    return totals;
+  }
+
+  /// Income-only total per category within [range]. Categories with zero
+  /// income in the range are omitted from the result map.
+  Map<String, double> incomeByCategory(DateTimeRange range) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    final totals = <String, double>{};
+    for (final t in transactions) {
+      if (t.type != TransactionType.income) continue;
       if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
       totals[t.category] = (totals[t.category] ?? 0) + t.amount;
     }
@@ -441,6 +510,399 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether [period] can be requested right now — either it's never been
+  /// requested, or its calendar-arithmetic cooldown (see
+  /// [AnalysisPeriodX.nextAvailableAt]) has elapsed.
+  bool canRequestAnalysis(AnalysisPeriod period) {
+    final last = _analysisRequestLog[period];
+    if (last == null) return true;
+    return !DateTime.now().isBefore(period.nextAvailableAt(last));
+  }
+
+  /// The next moment [period] becomes requestable again, or null if it's
+  /// never been requested or is already available now.
+  DateTime? nextAvailableAt(AnalysisPeriod period) {
+    final last = _analysisRequestLog[period];
+    if (last == null) return null;
+    final next = period.nextAvailableAt(last);
+    return DateTime.now().isBefore(next) ? next : null;
+  }
+
+  /// Whether at least half the calendar days in [period]'s current range
+  /// (rounded up) have at least one transaction — the bar for a request to
+  /// produce a meaningful analysis rather than mostly empty commentary.
+  bool meetsActivityThreshold(AnalysisPeriod period) {
+    final range = period.rangeFor(DateTime.now());
+    final (start, endExclusive) = _normalizedBounds(range);
+    final totalDays = endExclusive.difference(start).inDays;
+    final activeDays = <DateTime>{};
+    for (final t in transactions) {
+      final day = DateTime(t.date.year, t.date.month, t.date.day);
+      if (day.isBefore(start) || !day.isBefore(endExclusive)) continue;
+      activeDays.add(day);
+    }
+    return activeDays.length >= (totalDays / 2).ceil();
+  }
+
+  /// The equal-length range immediately preceding [range] — same pattern
+  /// already used ad hoc by AnalysisScreen's `_DeltaTile` (prior-period
+  /// expense delta), centralized here as the one source of truth for the
+  /// AI-context computation in [requestAnalysis]. UI screens keep their own
+  /// local copies for now; this isn't a general-purpose refactor.
+  DateTimeRange _precedingRange(DateTimeRange range) {
+    final spanDays = range.end.difference(range.start).inDays + 1;
+    return DateTimeRange(
+      start: range.start.subtract(Duration(days: spanDays)),
+      end: range.start.subtract(const Duration(days: 1)),
+    );
+  }
+
+  /// Requests a new [SavedAnalysis] for [period]: validates the cooldown and
+  /// activity threshold, snapshots the current numbers, derives the richer
+  /// context (savings rate, prior-period comparison, top expense category,
+  /// income-vs-typical, and the last same-period-type analysis for
+  /// continuity), inserts a loading-state entry immediately, and kicks off
+  /// (without awaiting) the four independent OpenRouter Q&A calls that fill
+  /// it in. Returns the new analysis's id right away — callers that want to
+  /// watch it fill in should listen to AppState and re-read [findAnalysis].
+  Future<String> requestAnalysis(AnalysisPeriod period) async {
+    if (!hasApiKey) {
+      throw AnalysisRequestException(
+        'Add an OpenRouter API key in Settings before requesting an analysis.',
+      );
+    }
+    if (!canRequestAnalysis(period)) {
+      final next = nextAvailableAt(period)!;
+      throw AnalysisRequestException(
+        'You can request another ${period.label} analysis on ${formatMDY(next)}.',
+      );
+    }
+    if (!meetsActivityThreshold(period)) {
+      throw AnalysisRequestException(
+        'Not enough recorded activity in this period yet — add a few more transactions first.',
+      );
+    }
+
+    final now = DateTime.now();
+    final range = period.rangeFor(now);
+    final (totalIncome, totalExpense) = totalsForDateRange(range);
+    final expenseCats = expenseByCategory(range);
+    final incomeCats = incomeByCategory(range);
+    final buckets = [
+      for (final (bucketStart, income, expense) in cashFlowForRange(range))
+        CashFlowBucket(start: bucketStart, income: income, expense: expense),
+    ];
+
+    // Derived context fed to the AI prompts, computed once here so each
+    // prompt-builder gets plain numbers instead of re-deriving them.
+    final savingsRate = totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome : null;
+
+    final (prevIncome, prevExpense) = totalsForDateRange(_precedingRange(range));
+
+    String? topCategoryName;
+    double? topCategoryAmount;
+    double? topCategoryPercent;
+    if (expenseCats.isNotEmpty && totalExpense > 0) {
+      final sorted = expenseCats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      topCategoryName = sorted.first.key;
+      topCategoryAmount = sorted.first.value;
+      topCategoryPercent = sorted.first.value / totalExpense;
+    }
+
+    double? typicalIncomeForPeriod;
+    if (profile.typicalMonthlyIncome != null && profile.typicalMonthlyIncome! > 0) {
+      final spanDays = range.end.difference(range.start).inDays + 1;
+      typicalIncomeForPeriod = profile.typicalMonthlyIncome! / 30 * spanDays;
+    }
+
+    // Most recent same-period-type analysis with a loaded overall
+    // assessment, for continuity — must be looked up before the new
+    // analysis is inserted, since savedAnalyses is newest-first.
+    SavedAnalysis? previousAnalysis;
+    for (final a in savedAnalyses) {
+      if (a.period == period && a.overallStatus == AnalysisAnswerStatus.loaded) {
+        previousAnalysis = a;
+        break;
+      }
+    }
+
+    final id = now.millisecondsSinceEpoch.toString();
+    final analysis = SavedAnalysis(
+      id: id,
+      period: period,
+      rangeStart: range.start,
+      rangeEnd: range.end,
+      createdAt: now,
+      totalIncome: totalIncome,
+      totalExpense: totalExpense,
+      expenseByCategory: expenseCats,
+      incomeByCategory: incomeCats,
+      cashFlowBuckets: buckets,
+    );
+
+    savedAnalyses = [analysis, ...savedAnalyses];
+    _persistence.saveSavedAnalyses(savedAnalyses);
+    _analysisRequestLog = {..._analysisRequestLog, period: now};
+    _persistence.saveAnalysisRequestLog(_analysisRequestLog);
+    notifyListeners();
+
+    // Fire-and-forget: each slot updates independently and a failure in one
+    // must not affect the other three.
+    unawaited(_fetchGoalProgress(
+      id,
+      range,
+      totalIncome,
+      totalExpense,
+      savingsRate,
+      typicalIncomeForPeriod,
+      previousAnalysis,
+    ));
+    unawaited(_fetchCostCutting(
+      id,
+      range,
+      expenseCats,
+      topCategoryName,
+      topCategoryAmount,
+      topCategoryPercent,
+      prevExpense,
+    ));
+    unawaited(_fetchOverallAssessment(
+      id,
+      range,
+      totalIncome,
+      totalExpense,
+      expenseCats,
+      incomeCats,
+      savingsRate,
+      prevIncome,
+      prevExpense,
+      topCategoryName,
+      topCategoryAmount,
+      topCategoryPercent,
+      typicalIncomeForPeriod,
+      previousAnalysis,
+    ));
+    unawaited(_fetchActionableSteps(
+      id,
+      range,
+      totalIncome,
+      totalExpense,
+      expenseCats,
+      incomeCats,
+      savingsRate,
+      topCategoryName,
+      topCategoryAmount,
+      topCategoryPercent,
+      previousAnalysis,
+    ));
+
+    return id;
+  }
+
+  Future<void> _fetchGoalProgress(
+    String analysisId,
+    DateTimeRange range,
+    double totalIncome,
+    double totalExpense,
+    double? savingsRate,
+    double? typicalIncomeForPeriod,
+    SavedAnalysis? previousAnalysis,
+  ) async {
+    try {
+      final text = await _openRouter.analyzeGoalProgress(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        profile: profile,
+        range: range,
+        totalIncome: totalIncome,
+        totalExpense: totalExpense,
+        savingsRate: savingsRate,
+        typicalMonthlyIncomeForPeriod: typicalIncomeForPeriod,
+        previousAnalysis: previousAnalysis,
+      );
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(
+          goalProgressText: text,
+          goalProgressStatus: AnalysisAnswerStatus.loaded,
+          clearGoalProgressError: true,
+        ),
+      );
+    } catch (e) {
+      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(goalProgressStatus: AnalysisAnswerStatus.error, goalProgressError: message),
+      );
+    }
+  }
+
+  Future<void> _fetchCostCutting(
+    String analysisId,
+    DateTimeRange range,
+    Map<String, double> expenseCats,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    double prevExpense,
+  ) async {
+    try {
+      final text = await _openRouter.analyzeCostCutting(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        profile: profile,
+        range: range,
+        expenseByCategory: expenseCats,
+        topCategoryName: topCategoryName,
+        topCategoryAmount: topCategoryAmount,
+        topCategoryPercent: topCategoryPercent,
+        previousPeriodExpense: prevExpense,
+      );
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(
+          costCuttingText: text,
+          costCuttingStatus: AnalysisAnswerStatus.loaded,
+          clearCostCuttingError: true,
+        ),
+      );
+    } catch (e) {
+      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(costCuttingStatus: AnalysisAnswerStatus.error, costCuttingError: message),
+      );
+    }
+  }
+
+  Future<void> _fetchOverallAssessment(
+    String analysisId,
+    DateTimeRange range,
+    double totalIncome,
+    double totalExpense,
+    Map<String, double> expenseCats,
+    Map<String, double> incomeCats,
+    double? savingsRate,
+    double prevIncome,
+    double prevExpense,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    double? typicalIncomeForPeriod,
+    SavedAnalysis? previousAnalysis,
+  ) async {
+    try {
+      final text = await _openRouter.analyzeOverallAssessment(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        profile: profile,
+        range: range,
+        totalIncome: totalIncome,
+        totalExpense: totalExpense,
+        expenseByCategory: expenseCats,
+        incomeByCategory: incomeCats,
+        savingsRate: savingsRate,
+        previousPeriodIncome: prevIncome,
+        previousPeriodExpense: prevExpense,
+        topCategoryName: topCategoryName,
+        topCategoryAmount: topCategoryAmount,
+        topCategoryPercent: topCategoryPercent,
+        typicalMonthlyIncomeForPeriod: typicalIncomeForPeriod,
+        previousAnalysis: previousAnalysis,
+      );
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(
+          overallText: text,
+          overallStatus: AnalysisAnswerStatus.loaded,
+          clearOverallError: true,
+        ),
+      );
+    } catch (e) {
+      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(overallStatus: AnalysisAnswerStatus.error, overallError: message),
+      );
+    }
+  }
+
+  Future<void> _fetchActionableSteps(
+    String analysisId,
+    DateTimeRange range,
+    double totalIncome,
+    double totalExpense,
+    Map<String, double> expenseCats,
+    Map<String, double> incomeCats,
+    double? savingsRate,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    SavedAnalysis? previousAnalysis,
+  ) async {
+    try {
+      final text = await _openRouter.analyzeActionableSteps(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        profile: profile,
+        range: range,
+        totalIncome: totalIncome,
+        totalExpense: totalExpense,
+        expenseByCategory: expenseCats,
+        incomeByCategory: incomeCats,
+        savingsRate: savingsRate,
+        topCategoryName: topCategoryName,
+        topCategoryAmount: topCategoryAmount,
+        topCategoryPercent: topCategoryPercent,
+        previousAnalysis: previousAnalysis,
+      );
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(
+          actionableStepsText: text,
+          actionableStepsStatus: AnalysisAnswerStatus.loaded,
+          clearActionableStepsError: true,
+        ),
+      );
+    } catch (e) {
+      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      _updateSavedAnalysis(
+        analysisId,
+        (a) => a.copyWith(
+          actionableStepsStatus: AnalysisAnswerStatus.error,
+          actionableStepsError: message,
+        ),
+      );
+    }
+  }
+
+  /// Applies [update] to the [SavedAnalysis] with [id] wherever it currently
+  /// sits in [savedAnalyses] (it may have moved position since it was
+  /// created, but it won't disappear), persists, and notifies. No-op if the
+  /// analysis was deleted in the meantime.
+  void _updateSavedAnalysis(String id, SavedAnalysis Function(SavedAnalysis) update) {
+    if (!savedAnalyses.any((a) => a.id == id)) return;
+    savedAnalyses = [
+      for (final a in savedAnalyses)
+        if (a.id == id) update(a) else a,
+    ];
+    _persistence.saveSavedAnalyses(savedAnalyses);
+    notifyListeners();
+  }
+
+  SavedAnalysis? findAnalysis(String id) {
+    for (final a in savedAnalyses) {
+      if (a.id == id) return a;
+    }
+    return null;
+  }
+
+  void deleteSavedAnalysis(String id) {
+    savedAnalyses = savedAnalyses.where((a) => a.id != id).toList();
+    _persistence.saveSavedAnalyses(savedAnalyses);
+    notifyListeners();
+  }
+
   Future<void> clearAllData() async {
     await _persistence.clearAll();
     transactions = _persistence.loadTransactions();
@@ -450,6 +912,8 @@ class AppState extends ChangeNotifier {
     apiConfig = ApiConfig();
     conversations = [];
     activeConversationId = null;
+    savedAnalyses = [];
+    _analysisRequestLog = {};
     notifyListeners();
   }
 }

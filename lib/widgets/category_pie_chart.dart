@@ -6,15 +6,28 @@ import '../theme/app_text_styles.dart';
 import '../services/formatters.dart';
 import '../models/category.dart';
 
-/// Pie chart breaking down expenses by category. Automatically folds small
-/// categories into "Other" if there are more than ~6 slices to keep the chart
-/// legible. Self-wraps in AppCard with a detailed legend showing icon, color,
-/// amount, and percentage for each category.
-class ExpenseCategoryPieChart extends StatelessWidget {
-  const ExpenseCategoryPieChart({super.key, required this.data});
+/// Pie chart breaking down a category→amount map (expenses OR income) for a
+/// given [title]. Automatically folds small categories into "Other" if there
+/// are more than ~6 slices to keep the chart legible. Self-wraps in AppCard
+/// with a detailed legend showing icon, color, amount, and percentage for
+/// each category. Shared by the "Expenses by category" and "Income by
+/// category" cards — same shape, different data/title.
+class CategoryPieChart extends StatelessWidget {
+  const CategoryPieChart({
+    super.key,
+    required this.title,
+    required this.data,
+    this.emptyLabel = 'No activity in this range',
+  });
 
-  /// Map of category name to total expense amount.
+  /// Card heading, e.g. "Expenses by category" or "Income by category".
+  final String title;
+
+  /// Map of category name to total amount.
   final Map<String, double> data;
+
+  /// Shown in place of the chart when [data] is empty.
+  final String emptyLabel;
 
   // Fixed categorical color palette. Repeats after 8 hues.
   static const List<Color> _paletteColors = [
@@ -36,11 +49,11 @@ class ExpenseCategoryPieChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Expenses by category', style: AppTextStyles.cardHeading()),
+            Text(title, style: AppTextStyles.cardHeading()),
             const SizedBox(height: 40),
             Center(
               child: Text(
-                'No expenses in this range',
+                emptyLabel,
                 style: AppTextStyles.metadata(),
               ),
             ),
@@ -67,7 +80,7 @@ class ExpenseCategoryPieChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Expenses by category', style: AppTextStyles.cardHeading()),
+          Text(title, style: AppTextStyles.cardHeading()),
           const SizedBox(height: 24),
           SizedBox(
             height: 200,

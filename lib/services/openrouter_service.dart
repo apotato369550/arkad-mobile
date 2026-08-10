@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/profile.dart';
+import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
 import 'formatters.dart';
 
@@ -122,6 +123,309 @@ class OpenRouterService {
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: messages,
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+  }
+
+  /// One-shot question: how close is the user to their stated financial
+  /// goal/savings target, given this period's net. Same non-chat shape as
+  /// [analyzeFinances] — no history, no transaction extraction.
+  Future<String> analyzeGoalProgress({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+    required DateTimeRange range,
+    required double totalIncome,
+    required double totalExpense,
+    double? savingsRate,
+    double? typicalMonthlyIncomeForPeriod,
+    SavedAnalysis? previousAnalysis,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('No OpenRouter API key configured.');
+    }
+
+    final net = totalIncome - totalExpense;
+    final profileLines = _buildProfileSection(profile);
+    final continuityLines = _buildContinuitySection(previousAnalysis);
+
+    final derivedLines = StringBuffer();
+    if (savingsRate != null) {
+      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+    }
+    if (typicalMonthlyIncomeForPeriod != null) {
+      derivedLines.writeln(
+        'Typical income scaled to this period\'s length: ${formatCurrency(typicalMonthlyIncomeForPeriod)} '
+        '(actual: ${formatCurrency(totalIncome)})',
+      );
+    }
+
+    final prompt = '''
+$_personaIntro
+
+You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
+
+Period: ${formatDate(range.start)} to ${formatDate(range.end)}
+
+Total income: ${formatCurrency(totalIncome)}
+Total expenses: ${formatCurrency(totalExpense)}
+Net: ${formatCurrency(net)}
+${derivedLines.isEmpty ? '' : '$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
+Question: How close is the user to achieving their stated financial goal and/or savings target, given this period's net? If a goal target date is set, factor in whether the pace is realistic for that timeline. If no goal or savings target is stated, say so plainly and suggest they set one in their profile.
+
+$_responseStyle
+''';
+
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: [
+        {'role': 'system', 'content': prompt},
+      ],
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+  }
+
+  /// One-shot question: which expense categories look like the best
+  /// opportunities to cut spending, and why. Same non-chat shape as
+  /// [analyzeFinances].
+  Future<String> analyzeCostCutting({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+    required DateTimeRange range,
+    required Map<String, double> expenseByCategory,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    double? previousPeriodExpense,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('No OpenRouter API key configured.');
+    }
+
+    final categoryLines = expenseByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+    final profileLines = _buildProfileSection(profile);
+
+    final derivedLines = StringBuffer();
+    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+      derivedLines.writeln(
+        'Largest category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
+        '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
+      );
+    }
+    if (previousPeriodExpense != null) {
+      derivedLines.writeln('Previous period\'s total expenses: ${formatCurrency(previousPeriodExpense)}');
+    }
+
+    final prompt = '''
+$_personaIntro
+
+You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
+
+Period: ${formatDate(range.start)} to ${formatDate(range.end)}
+
+Expense breakdown by category:
+${categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines}
+${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}
+Question: Which categories look like the best opportunities to cut spending, and why? Rank the top 1-3 opportunities. If the user has fixed monthly obligations on file, don't suggest cutting those — focus on discretionary categories.
+
+$_responseStyle
+''';
+
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: [
+        {'role': 'system', 'content': prompt},
+      ],
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+  }
+
+  /// One-shot question: a short overall assessment of the period's
+  /// financial health. Same non-chat shape as [analyzeFinances].
+  Future<String> analyzeOverallAssessment({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+    required DateTimeRange range,
+    required double totalIncome,
+    required double totalExpense,
+    required Map<String, double> expenseByCategory,
+    required Map<String, double> incomeByCategory,
+    double? savingsRate,
+    double? previousPeriodIncome,
+    double? previousPeriodExpense,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    double? typicalMonthlyIncomeForPeriod,
+    SavedAnalysis? previousAnalysis,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('No OpenRouter API key configured.');
+    }
+
+    final net = totalIncome - totalExpense;
+    final expenseLines = expenseByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+    final incomeLines = incomeByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+    final profileLines = _buildProfileSection(profile);
+    final continuityLines = _buildContinuitySection(previousAnalysis);
+
+    final derivedLines = StringBuffer();
+    if (savingsRate != null) {
+      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+    }
+    if (previousPeriodIncome != null || previousPeriodExpense != null) {
+      derivedLines.writeln('Previous period for comparison:');
+      if (previousPeriodIncome != null) {
+        derivedLines.writeln('- Income: ${formatCurrency(previousPeriodIncome)}');
+      }
+      if (previousPeriodExpense != null) {
+        derivedLines.writeln('- Expenses: ${formatCurrency(previousPeriodExpense)}');
+      }
+    }
+    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+      derivedLines.writeln(
+        'Largest expense category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
+        '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
+      );
+    }
+    if (typicalMonthlyIncomeForPeriod != null) {
+      derivedLines.writeln(
+        'Typical income scaled to this period\'s length: ${formatCurrency(typicalMonthlyIncomeForPeriod)} '
+        '(actual: ${formatCurrency(totalIncome)})',
+      );
+    }
+
+    final prompt = '''
+$_personaIntro
+
+You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
+
+Period: ${formatDate(range.start)} to ${formatDate(range.end)}
+
+Total income: ${formatCurrency(totalIncome)}
+Total expenses: ${formatCurrency(totalExpense)}
+Net: ${formatCurrency(net)}
+
+Income breakdown by category:
+${incomeLines.isEmpty ? '(no income in this period)' : incomeLines}
+
+Expense breakdown by category:
+${expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines}
+${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
+Question: Give a short overall assessment of this period's financial health.
+
+$_responseStyle
+''';
+
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: [
+        {'role': 'system', 'content': prompt},
+      ],
+    );
+    final choices = decoded['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.');
+    }
+    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+  }
+
+  /// One-shot question: 3-5 concrete, specific next actions for the upcoming
+  /// period, tied to real numbers where possible. Same non-chat shape as
+  /// [analyzeFinances] — dedicated slot rather than folding action items
+  /// into the other three questions (see Part D of the analysis-quality
+  /// improvement plan).
+  Future<String> analyzeActionableSteps({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+    required DateTimeRange range,
+    required double totalIncome,
+    required double totalExpense,
+    required Map<String, double> expenseByCategory,
+    required Map<String, double> incomeByCategory,
+    double? savingsRate,
+    String? topCategoryName,
+    double? topCategoryAmount,
+    double? topCategoryPercent,
+    SavedAnalysis? previousAnalysis,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('No OpenRouter API key configured.');
+    }
+
+    final net = totalIncome - totalExpense;
+    final expenseLines = expenseByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+    final incomeLines = incomeByCategory.entries
+        .map((e) => '- ${e.key}: ${formatCurrency(e.value)}')
+        .join('\n');
+    final profileLines = _buildProfileSection(profile);
+    final continuityLines = _buildContinuitySection(previousAnalysis);
+
+    final derivedLines = StringBuffer();
+    if (savingsRate != null) {
+      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+    }
+    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+      derivedLines.writeln(
+        'Largest expense category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
+        '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
+      );
+    }
+
+    final prompt = '''
+$_personaIntro
+
+You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
+
+Period: ${formatDate(range.start)} to ${formatDate(range.end)}
+
+Total income: ${formatCurrency(totalIncome)}
+Total expenses: ${formatCurrency(totalExpense)}
+Net: ${formatCurrency(net)}
+
+Income breakdown by category:
+${incomeLines.isEmpty ? '(no income in this period)' : incomeLines}
+
+Expense breakdown by category:
+${expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines}
+${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
+Question: Give 3-5 concrete, specific next actions for the upcoming period — tie each to a number where possible (a dollar amount, a percentage, a category). Number the list. If there's a previous check-in above, build on it rather than repeating the same actions verbatim.
+
+$_responseStyle
+''';
+
+    final decoded = await _postChatCompletion(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: [
+        {'role': 'system', 'content': prompt},
+      ],
     );
     final choices = decoded['choices'] as List<dynamic>?;
     if (choices == null || choices.isEmpty) {
@@ -297,10 +601,44 @@ Keep replies short, warm, and precise. Never fabricate transactions that weren't
       final formatted = formatCurrency(profile.savingsGoalAmount!);
       parts.add('Savings Goal: $formatted');
     }
+    if (profile.goalTargetDate != null) {
+      parts.add('Goal Target Date: ${formatMDY(profile.goalTargetDate!)}');
+    }
+    if (profile.riskTolerance.isNotEmpty) {
+      parts.add('Risk Tolerance: ${profile.riskTolerance}');
+    }
+    if (profile.monthlyFixedObligations != null && profile.monthlyFixedObligations! > 0) {
+      final formatted = formatCurrency(profile.monthlyFixedObligations!);
+      parts.add('Monthly Fixed Obligations: $formatted');
+    }
+    if (profile.dependents != null && profile.dependents! > 0) {
+      parts.add('Dependents: ${profile.dependents}');
+    }
 
     if (parts.isEmpty) return '';
     return 'About the user:\n${parts.map((p) => '- $p').join('\n')}\n';
   }
+
+  /// Surfaces the most recent same-period-type analysis's overall assessment
+  /// so the model can build on prior commentary instead of repeating it.
+  /// Returns '' when there's no prior analysis of this period type, so
+  /// first-time requests are unaffected.
+  String _buildContinuitySection(SavedAnalysis? previous) {
+    final text = previous?.overallText;
+    if (previous == null || text == null || text.isEmpty) return '';
+    return '''
+Previous check-in (as of ${formatMDY(previous.rangeEnd)}): "$text"
+Reflect on progress since then where relevant — don't just repeat it.
+''';
+  }
+
+  /// Shared tone + formatting instructions for the four one-shot analysis
+  /// prompts (goal progress / cost cutting / overall / actionable steps).
+  /// Scoped to those prompts only — the chat system prompt is untouched.
+  static const _responseStyle = '''
+Before addressing any concern, name one specific positive thing grounded in the actual data — a category the user controlled well, income earned, progress made. Never fabricate a win. If the period was genuinely difficult, say so plainly and note effort/consistency where visible instead of inventing positives.
+
+Respond in plain markdown only (no code fences around the whole response). Be concise: 2-4 short paragraphs or a short list. Ground your answer in the actual numbers given, not generic advice. Do NOT emit any ```$_transactionTag or ```arkad_refs code blocks — this is commentary only.''';
 
   /// Builds the system prompt for a one-shot, non-chat qualitative analysis
   /// of a time-ranged view of the user's finances (see [analyzeFinances]).

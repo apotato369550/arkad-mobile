@@ -1,181 +1,62 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import '../models/analysis_period.dart';
 import '../services/app_state.dart';
-import '../services/openrouter_service.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
 import '../widgets/income_expense_bar_chart.dart';
-import '../widgets/expense_category_pie_chart.dart';
+import '../widgets/category_pie_chart.dart';
 import '../widgets/stat_card.dart';
-
-enum _AnalysisPreset { pastWeek, pastMonth, pastThreeMonths, pastYear, custom }
-
-extension _AnalysisPresetLabel on _AnalysisPreset {
-  String get label => switch (this) {
-        _AnalysisPreset.pastWeek => '7 days',
-        _AnalysisPreset.pastMonth => '30 days',
-        _AnalysisPreset.pastThreeMonths => '90 days',
-        _AnalysisPreset.pastYear => '1 year',
-        _AnalysisPreset.custom => 'Custom',
-      };
-}
-
-enum _RemarksStatus { idle, loading, loaded, error }
+import 'analysis_detail_screen.dart';
+import 'analysis_list_screen.dart';
 
 class AnalysisScreen extends StatefulWidget {
-  const AnalysisScreen({
-    super.key,
-    required this.appState,
-    required this.onOpenSettings,
-  });
+  const AnalysisScreen({super.key, required this.appState});
 
   final AppState appState;
-  final VoidCallback onOpenSettings;
 
   @override
   State<AnalysisScreen> createState() => _AnalysisScreenState();
 }
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
-  late DateTimeRange _range;
-  _AnalysisPreset _preset = _AnalysisPreset.pastMonth;
-  _RemarksStatus _remarksStatus = _RemarksStatus.idle;
-  String? _remarksMarkdown;
-  String? _remarksError;
-  OpenRouterErrorKind? _remarksErrorKind;
+  CashFlowRange _range = CashFlowRange.sevenDays;
+  AnalysisPeriod _selectedPeriod = AnalysisPeriod.sevenDays;
+  bool _requesting = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _range = DateTimeRange(
-      start: DateTime.now().subtract(const Duration(days: 30)),
-      end: DateTime.now(),
-    );
-    _loadRemarks();
-  }
+  String _labelForBucket(DateTime date) =>
+      _range == CashFlowRange.sevenDays ? formatDayLabel(date) : formatMonthLabel(date);
 
-  void _setPreset(_AnalysisPreset preset) {
-    final now = DateTime.now();
-    late final DateTime start;
-    switch (preset) {
-      case _AnalysisPreset.pastWeek:
-        start = now.subtract(const Duration(days: 7));
-        break;
-      case _AnalysisPreset.pastMonth:
-        start = now.subtract(const Duration(days: 30));
-        break;
-      case _AnalysisPreset.pastThreeMonths:
-        start = now.subtract(const Duration(days: 90));
-        break;
-      case _AnalysisPreset.pastYear:
-        start = now.subtract(const Duration(days: 365));
-        break;
-      case _AnalysisPreset.custom:
-        return; // Custom is handled separately
-    }
-    setState(() {
-      _preset = preset;
-      _range = DateTimeRange(start: start, end: now);
-      _remarksStatus = _RemarksStatus.idle;
-    });
-    _loadRemarks();
-  }
-
-  Future<void> _pickCustomRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
-      initialDateRange: _range,
-    );
-    if (picked == null) return;
-
-    // Validate: at least 7 days
-    final spanDays = picked.end.difference(picked.start).inDays + 1;
-    if (spanDays < 7) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pick a range of at least one week')),
-        );
-      }
-      return;
-    }
-
-    setState(() {
-      _preset = _AnalysisPreset.custom;
-      _range = picked;
-      _remarksStatus = _RemarksStatus.idle;
-    });
-    _loadRemarks();
-  }
-
-  Future<void> _loadRemarks() async {
-    if (!widget.appState.apiConfig.hasKey) {
-      setState(() {
-        _remarksStatus = _RemarksStatus.error;
-        _remarksErrorKind = OpenRouterErrorKind.invalidKey;
-        _remarksError = null;
-      });
-      return;
-    }
-
-    setState(() => _remarksStatus = _RemarksStatus.loading);
-
-    final (income, expense) = widget.appState.totalsForDateRange(_range);
-    final byCategory = widget.appState.expenseByCategory(_range);
-    final spanDays = _range.end.difference(_range.start).inDays + 1;
-
-    // Previous period of equal length
-    final prevRange = DateTimeRange(
-      start: _range.start.subtract(Duration(days: spanDays)),
-      end: _range.start.subtract(const Duration(days: 1)),
-    );
-    final (prevIncome, prevExpense) = widget.appState.totalsForDateRange(prevRange);
-
+  Future<void> _requestAnalysis() async {
+    setState(() => _requesting = true);
     try {
-      final md = await OpenRouterService().analyzeFinances(
-        apiKey: widget.appState.apiConfig.apiKey ?? '',
-        modelSlug: widget.appState.apiConfig.modelSlug,
-        profile: widget.appState.profile,
-        range: _range,
-        totalIncome: income,
-        totalExpense: expense,
-        expenseByCategory: byCategory,
-        previousPeriodIncome: prevIncome,
-        previousPeriodExpense: prevExpense,
+      final id = await widget.appState.requestAnalysis(_selectedPeriod);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AnalysisDetailScreen(appState: widget.appState, analysisId: id),
+        ),
       );
-      if (!mounted) return;
-      setState(() {
-        _remarksMarkdown = md;
-        _remarksStatus = _RemarksStatus.loaded;
-      });
-    } on OpenRouterException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _remarksError = e.message;
-        _remarksErrorKind = e.kind;
-        _remarksStatus = _RemarksStatus.error;
-      });
+    } on AnalysisRequestException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _requesting = false);
     }
-  }
-
-  String _labelForBucket(DateTime date) {
-    final spanDays = _range.end.difference(_range.start).inDays + 1;
-    if (spanDays <= 31) return formatDayLabel(date);
-    if (spanDays <= 180) return formatMonthDay(date);
-    return formatMonthLabel(date);
   }
 
   @override
   Widget build(BuildContext context) {
-    final (totalIncome, totalExpense) = widget.appState.totalsForDateRange(_range);
-    final buckets = widget.appState.cashFlowForRange(_range);
-    final expenseByCategory = widget.appState.expenseByCategory(_range);
+    final dateRange = widget.appState.dateTimeRangeForCashFlow(_range);
+    final (totalIncome, totalExpense) = widget.appState.totalsForDateRange(dateRange);
+    final buckets = widget.appState.cashFlow(_range);
+    final expenseByCategory = widget.appState.expenseByCategory(dateRange);
+    final incomeByCategory = widget.appState.incomeByCategory(dateRange);
 
-    final spanDays = _range.end.difference(_range.start).inDays + 1;
+    final spanDays = dateRange.end.difference(dateRange.start).inDays + 1;
 
     // Net: income - expense
     final net = totalIncome - totalExpense;
@@ -185,8 +66,8 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
 
     // Previous period delta
     final prevRange = DateTimeRange(
-      start: _range.start.subtract(Duration(days: spanDays)),
-      end: _range.start.subtract(const Duration(days: 1)),
+      start: dateRange.start.subtract(Duration(days: spanDays)),
+      end: dateRange.start.subtract(const Duration(days: 1)),
     );
     final (_, prevExpense) = widget.appState.totalsForDateRange(prevRange);
     final expenseDelta = prevExpense > 0 ? (totalExpense - prevExpense) / prevExpense : 0.0;
@@ -199,11 +80,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         const SizedBox(height: 28),
 
         // Range selector
-        _RangeSelector(
-          preset: _preset,
-          onSelectPreset: _setPreset,
-          onCustom: _pickCustomRange,
-        ),
+        _RangeSelector(selected: _range, onChanged: (r) => setState(() => _range = r)),
         const SizedBox(height: 28),
 
         // Summary stats row
@@ -243,118 +120,66 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         const SizedBox(height: 28),
 
         // Expense by category pie chart
-        ExpenseCategoryPieChart(data: expenseByCategory),
+        CategoryPieChart(
+          title: 'Expenses by category',
+          data: expenseByCategory,
+          emptyLabel: 'No expenses in this range',
+        ),
         const SizedBox(height: 28),
 
-        // Remarks panel
+        // Income by category pie chart
+        CategoryPieChart(
+          title: 'Income by category',
+          data: incomeByCategory,
+          emptyLabel: 'No income in this range',
+        ),
+        const SizedBox(height: 28),
+
+        // Ask Arkad for an in-depth, saved analysis of a chosen period.
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header row
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Arkad\'s take', style: AppTextStyles.cardHeading()),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    color: AppColors.ink60,
-                    iconSize: 20,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
-                    ),
-                    onPressed: _loadRemarks,
-                  ),
-                ],
+              Text('Ask Arkad for an analysis', style: AppTextStyles.cardHeading()),
+              const SizedBox(height: 6),
+              Text(
+                'Get an in-depth, saved write-up for a specific period.',
+                style: AppTextStyles.metadata(),
               ),
               const SizedBox(height: 16),
-
-              // Body: loading, loaded, error, or idle
-              if (_remarksStatus == _RemarksStatus.idle)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: Text(
-                      'Ready when you are',
-                      style: AppTextStyles.metadata(),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final period in AnalysisPeriod.values)
+                    _PeriodPill(
+                      period: period,
+                      selected: period == _selectedPeriod,
+                      onTap: () => setState(() => _selectedPeriod = period),
                     ),
-                  ),
-                )
-              else if (_remarksStatus == _RemarksStatus.loading)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: Column(
-                      children: [
-                        const CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(AppColors.darkGreen),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Reading your numbers…',
-                          style: AppTextStyles.metadata(),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_remarksStatus == _RemarksStatus.loaded)
-                MarkdownBody(
-                  data: _remarksMarkdown ?? '',
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: AppTextStyles.body(color: AppColors.ink),
-                    h1: AppTextStyles.cardHeading(color: AppColors.ink),
-                    h2: AppTextStyles.cardHeading(color: AppColors.ink),
-                    strong: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.ink,
-                    ),
-                    a: const TextStyle(
-                      color: AppColors.darkGreen,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                )
-              else // error
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_remarksErrorKind == OpenRouterErrorKind.invalidKey)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Add an OpenRouter key in Settings to get remarks from Arkad.',
-                            style: AppTextStyles.body(),
-                          ),
-                          const SizedBox(height: 12),
-                          TextButton(
-                            onPressed: widget.onOpenSettings,
-                            child: const Text('Open Settings'),
-                          ),
-                        ],
-                      )
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_remarksError != null)
-                            Text(
-                              _remarksError!,
-                              style: AppTextStyles.body(color: AppColors.clay),
-                            ),
-                          const SizedBox(height: 12),
-                          TextButton(
-                            onPressed: _loadRemarks,
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      ),
-                  ],
+                ],
+              ),
+              const SizedBox(height: 20),
+              _AnalysisRequestAction(
+                appState: widget.appState,
+                period: _selectedPeriod,
+                requesting: _requesting,
+                onRequest: _requestAnalysis,
+              ),
+              const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => AnalysisListScreen(appState: widget.appState)),
                 ),
+                icon: const Icon(Icons.history, size: 18),
+                label: Text('Past analyses (${widget.appState.savedAnalyses.length})'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.ink,
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 0),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
             ],
           ),
         ),
@@ -363,52 +188,15 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
   }
 }
 
-/// Selector for preset ranges and custom option.
-class _RangeSelector extends StatelessWidget {
-  const _RangeSelector({
-    required this.preset,
-    required this.onSelectPreset,
-    required this.onCustom,
-  });
+/// Selectable pill for a single [AnalysisPeriod], used in the "Ask Arkad for
+/// an analysis" section. Visually mirrors [_RangeSelector]'s selected state
+/// but pills are independent (not a segmented group) since there are six of
+/// them and they wrap across lines on narrow screens.
+class _PeriodPill extends StatelessWidget {
+  const _PeriodPill({required this.period, required this.selected, required this.onTap});
 
-  final _AnalysisPreset preset;
-  final ValueChanged<_AnalysisPreset> onSelectPreset;
-  final VoidCallback onCustom;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final p in _AnalysisPreset.values.where((p) => p != _AnalysisPreset.custom))
-          _Pill(
-            label: p.label,
-            isSelected: preset == p,
-            onTap: () => onSelectPreset(p),
-          ),
-        _Pill(
-          label: preset == _AnalysisPreset.custom && preset != _AnalysisPreset.pastMonth
-              ? 'Custom'
-              : 'Custom…',
-          isSelected: preset == _AnalysisPreset.custom,
-          onTap: onCustom,
-        ),
-      ],
-    );
-  }
-}
-
-/// Pill-style range button.
-class _Pill extends StatelessWidget {
-  const _Pill({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isSelected;
+  final AnalysisPeriod period;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -419,19 +207,140 @@ class _Pill extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.darkGreen : AppColors.cream,
+          color: selected ? AppColors.darkGreen : AppColors.cream,
           borderRadius: BorderRadius.circular(AppRadii.pill),
-          border: Border.all(
-            color: isSelected ? AppColors.darkGreen : AppColors.ink10,
-            width: 1,
-          ),
         ),
         child: Text(
-          label,
+          period.label,
           style: AppTextStyles.manrope(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? AppColors.paper : AppColors.ink,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: selected ? AppColors.paper : AppColors.ink60,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The status/action area beneath the period pills — re-evaluated on every
+/// build from live AppState so it reflects cooldowns/activity thresholds
+/// immediately after a request completes.
+class _AnalysisRequestAction extends StatelessWidget {
+  const _AnalysisRequestAction({
+    required this.appState,
+    required this.period,
+    required this.requesting,
+    required this.onRequest,
+  });
+
+  final AppState appState;
+  final AnalysisPeriod period;
+  final bool requesting;
+  final VoidCallback onRequest;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!appState.hasApiKey) {
+      return const _StatusMessage(
+        text: 'Add an OpenRouter API key in Settings to request an analysis.',
+      );
+    }
+
+    if (!appState.canRequestAnalysis(period)) {
+      final next = appState.nextAvailableAt(period);
+      return _StatusMessage(
+        text: next != null
+            ? 'Available again on ${formatDate(next)}'
+            : 'Not available yet',
+      );
+    }
+
+    if (!appState.meetsActivityThreshold(period)) {
+      return const _StatusMessage(
+        text: 'Not enough recorded activity in this period yet — add a few more '
+            'transactions first.',
+      );
+    }
+
+    return ElevatedButton.icon(
+      onPressed: requesting ? null : onRequest,
+      icon: requesting
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.paper),
+            )
+          : const Icon(Icons.auto_awesome, size: 18),
+      label: Text('Request ${period.label} analysis'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.darkGreen,
+        foregroundColor: AppColors.paper,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.pill)),
+      ),
+    );
+  }
+}
+
+/// Disabled-looking inline status line shown when a period isn't requestable.
+class _StatusMessage extends StatelessWidget {
+  const _StatusMessage({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: AppColors.cream,
+        borderRadius: BorderRadius.circular(AppRadii.input),
+      ),
+      child: Text(text, style: AppTextStyles.metadata()),
+    );
+  }
+}
+
+/// Segmented 7D/6M/12M range selector, mirrors [CashFlowChart]'s selector.
+class _RangeSelector extends StatelessWidget {
+  const _RangeSelector({required this.selected, required this.onChanged});
+
+  final CashFlowRange selected;
+  final ValueChanged<CashFlowRange> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: AppColors.cream, borderRadius: BorderRadius.circular(AppRadii.pill)),
+      child: Row(
+        children: [
+          for (final range in CashFlowRange.values) Expanded(child: _segment(range)),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(CashFlowRange range) {
+    final isSelected = range == selected;
+    return GestureDetector(
+      onTap: () => onChanged(range),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.darkGreen : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          range.shortLabel,
+          style: AppTextStyles.manrope(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: isSelected ? AppColors.paper : AppColors.ink60,
           ),
         ),
       ),

@@ -73,7 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final reply = await _service.sendMessage(
-        apiKey: appState.apiConfig.apiKey ?? '',
+        apiKey: appState.effectiveApiKey,
         modelSlug: appState.apiConfig.modelSlug,
         userMessage: userMessage,
         history: appState.activeMessages,
@@ -102,7 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final appState = widget.appState;
-    final hasKey = appState.apiConfig.hasKey;
+    final hasKey = appState.hasApiKey;
 
     return Scaffold(
       backgroundColor: AppColors.paper,
