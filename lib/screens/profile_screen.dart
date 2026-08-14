@@ -41,7 +41,7 @@ class ProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                profile.financialGoal.trim().isEmpty ? 'Building good money habits' : profile.financialGoal,
+                profile.goalSummary.trim().isEmpty ? 'Building good money habits' : profile.goalSummary,
                 style: AppTextStyles.body(color: AppColors.ink60),
                 textAlign: TextAlign.center,
               ),

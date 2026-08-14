@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
+import '../models/countries.dart';
 import '../models/profile.dart';
 import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
@@ -584,14 +585,24 @@ Keep replies short, warm, and precise. Never fabricate transactions that weren't
     if (profile.displayName.isNotEmpty) {
       parts.add('User: ${profile.displayName}');
     }
-    if (profile.location.isNotEmpty) {
-      parts.add('Location: ${profile.location}');
+    if (profile.countryCode.isNotEmpty) {
+      final countryName = countryNameForCode(profile.countryCode) ?? profile.countryCode;
+      parts.add('Country: $countryName');
     }
-    if (profile.occupation.isNotEmpty) {
-      parts.add('Occupation: ${profile.occupation}');
+    if (profile.jobTitle.isNotEmpty) {
+      parts.add('Job Title: ${profile.jobTitle}');
     }
-    if (profile.financialGoal.isNotEmpty) {
-      parts.add('Financial Goal: ${profile.financialGoal}');
+    if (profile.occupationField.isNotEmpty) {
+      parts.add('Field: ${profile.occupationField}');
+    }
+    if (profile.goalType.isNotEmpty) {
+      final goal = profile.goalType == 'Other' && profile.goalOther.isNotEmpty
+          ? profile.goalOther
+          : profile.goalType;
+      parts.add('Goal: $goal');
+    }
+    if (profile.longTermGoal.isNotEmpty) {
+      parts.add('Long-term Financial Goal: ${profile.longTermGoal}');
     }
     if (profile.typicalMonthlyIncome != null && profile.typicalMonthlyIncome! > 0) {
       final formatted = formatCurrency(profile.typicalMonthlyIncome!);
@@ -600,19 +611,6 @@ Keep replies short, warm, and precise. Never fabricate transactions that weren't
     if (profile.savingsGoalAmount != null && profile.savingsGoalAmount! > 0) {
       final formatted = formatCurrency(profile.savingsGoalAmount!);
       parts.add('Savings Goal: $formatted');
-    }
-    if (profile.goalTargetDate != null) {
-      parts.add('Goal Target Date: ${formatMDY(profile.goalTargetDate!)}');
-    }
-    if (profile.riskTolerance.isNotEmpty) {
-      parts.add('Risk Tolerance: ${profile.riskTolerance}');
-    }
-    if (profile.monthlyFixedObligations != null && profile.monthlyFixedObligations! > 0) {
-      final formatted = formatCurrency(profile.monthlyFixedObligations!);
-      parts.add('Monthly Fixed Obligations: $formatted');
-    }
-    if (profile.dependents != null && profile.dependents! > 0) {
-      parts.add('Dependents: ${profile.dependents}');
     }
 
     if (parts.isEmpty) return '';

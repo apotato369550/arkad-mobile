@@ -1,106 +1,107 @@
-/// Risk-tolerance choices offered in onboarding and the Profile tab. Mirrors
-/// the empty-string-means-unset convention used by [Profile.riskTolerance].
-const riskToleranceOptions = ['Conservative', 'Balanced', 'Aggressive'];
+/// "What do you plan to achieve with Arkad" choices offered in onboarding
+/// and the Profile tab. Selecting the last option reveals a free-text field
+/// captured in [Profile.goalOther].
+const goalOptions = [
+  'To Save More',
+  'To Spend Less',
+  'To  track my Income/Expenses',
+  'Other',
+];
 
 class Profile {
   Profile({
     this.displayName = '',
-    this.financialGoal = '',
-    this.typicalMonthlyIncome,
+    this.countryCode = '',
     this.currencyCode = 'USD',
-    this.location = '',
-    this.occupation = '',
+    this.jobTitle = '',
+    this.occupationField = '',
+    this.goalType = '',
+    this.goalOther = '',
+    this.longTermGoal = '',
+    this.typicalMonthlyIncome,
     this.savingsGoalAmount,
     this.onboardingComplete = false,
-    this.goalTargetDate,
-    this.riskTolerance = '',
-    this.monthlyFixedObligations,
-    this.dependents,
   });
 
   final String displayName;
-  final String financialGoal;
-  final double? typicalMonthlyIncome;
+  final String countryCode;
   final String currencyCode;
-  final String location;
-  final String occupation;
+  final String jobTitle;
+  final String occupationField;
+  final String goalType;
+  final String goalOther;
+  final String longTermGoal;
+  final double? typicalMonthlyIncome;
   final double? savingsGoalAmount;
   final bool onboardingComplete;
-  final DateTime? goalTargetDate;
-  final String riskTolerance;
-  final double? monthlyFixedObligations;
-  final int? dependents;
+
+  /// The goal text worth surfacing to the user: the custom "Other" entry when
+  /// given, otherwise the selected goal type, otherwise the freeform detail.
+  String get goalSummary {
+    if (goalType == 'Other' && goalOther.trim().isNotEmpty) return goalOther.trim();
+    if (goalType.isNotEmpty) return goalType;
+    return longTermGoal;
+  }
 
   Profile copyWith({
     String? displayName,
-    String? financialGoal,
+    String? countryCode,
+    String? currencyCode,
+    String? jobTitle,
+    String? occupationField,
+    String? goalType,
+    String? goalOther,
+    String? longTermGoal,
     double? typicalMonthlyIncome,
     bool clearTypicalMonthlyIncome = false,
-    String? currencyCode,
-    String? location,
-    String? occupation,
     double? savingsGoalAmount,
     bool clearSavingsGoalAmount = false,
     bool? onboardingComplete,
-    DateTime? goalTargetDate,
-    bool clearGoalTargetDate = false,
-    String? riskTolerance,
-    double? monthlyFixedObligations,
-    bool clearMonthlyFixedObligations = false,
-    int? dependents,
-    bool clearDependents = false,
   }) {
     return Profile(
       displayName: displayName ?? this.displayName,
-      financialGoal: financialGoal ?? this.financialGoal,
+      countryCode: countryCode ?? this.countryCode,
+      currencyCode: currencyCode ?? this.currencyCode,
+      jobTitle: jobTitle ?? this.jobTitle,
+      occupationField: occupationField ?? this.occupationField,
+      goalType: goalType ?? this.goalType,
+      goalOther: goalOther ?? this.goalOther,
+      longTermGoal: longTermGoal ?? this.longTermGoal,
       typicalMonthlyIncome:
           clearTypicalMonthlyIncome ? null : (typicalMonthlyIncome ?? this.typicalMonthlyIncome),
-      currencyCode: currencyCode ?? this.currencyCode,
-      location: location ?? this.location,
-      occupation: occupation ?? this.occupation,
       savingsGoalAmount:
           clearSavingsGoalAmount ? null : (savingsGoalAmount ?? this.savingsGoalAmount),
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
-      goalTargetDate: clearGoalTargetDate ? null : (goalTargetDate ?? this.goalTargetDate),
-      riskTolerance: riskTolerance ?? this.riskTolerance,
-      monthlyFixedObligations: clearMonthlyFixedObligations
-          ? null
-          : (monthlyFixedObligations ?? this.monthlyFixedObligations),
-      dependents: clearDependents ? null : (dependents ?? this.dependents),
     );
   }
 
   factory Profile.fromJson(Map<String, dynamic> json) {
     return Profile(
       displayName: json['displayName'] as String? ?? '',
-      financialGoal: json['financialGoal'] as String? ?? '',
-      typicalMonthlyIncome: (json['typicalMonthlyIncome'] as num?)?.toDouble(),
+      countryCode: json['countryCode'] as String? ?? '',
       currencyCode: json['currencyCode'] as String? ?? 'USD',
-      location: json['location'] as String? ?? '',
-      occupation: json['occupation'] as String? ?? '',
+      jobTitle: json['jobTitle'] as String? ?? '',
+      occupationField: json['occupationField'] as String? ?? '',
+      goalType: json['goalType'] as String? ?? '',
+      goalOther: json['goalOther'] as String? ?? '',
+      longTermGoal: json['longTermGoal'] as String? ?? '',
+      typicalMonthlyIncome: (json['typicalMonthlyIncome'] as num?)?.toDouble(),
       savingsGoalAmount: (json['savingsGoalAmount'] as num?)?.toDouble(),
       onboardingComplete: json['onboardingComplete'] as bool? ?? false,
-      goalTargetDate: json['goalTargetDate'] == null
-          ? null
-          : DateTime.parse(json['goalTargetDate'] as String),
-      riskTolerance: json['riskTolerance'] as String? ?? '',
-      monthlyFixedObligations: (json['monthlyFixedObligations'] as num?)?.toDouble(),
-      dependents: (json['dependents'] as num?)?.toInt(),
     );
   }
 
   Map<String, dynamic> toJson() => {
         'displayName': displayName,
-        'financialGoal': financialGoal,
-        'typicalMonthlyIncome': typicalMonthlyIncome,
+        'countryCode': countryCode,
         'currencyCode': currencyCode,
-        'location': location,
-        'occupation': occupation,
+        'jobTitle': jobTitle,
+        'occupationField': occupationField,
+        'goalType': goalType,
+        'goalOther': goalOther,
+        'longTermGoal': longTermGoal,
+        'typicalMonthlyIncome': typicalMonthlyIncome,
         'savingsGoalAmount': savingsGoalAmount,
         'onboardingComplete': onboardingComplete,
-        'goalTargetDate': goalTargetDate?.toIso8601String(),
-        'riskTolerance': riskTolerance,
-        'monthlyFixedObligations': monthlyFixedObligations,
-        'dependents': dependents,
       };
 }
