@@ -312,6 +312,21 @@ class AppState extends ChangeNotifier {
     return totals;
   }
 
+  /// Transactions dated within [range] (inclusive of both endpoint
+  /// calendar days), oldest first — see [ExportDataCard].
+  List<LedgerTransaction> transactionsInRange(DateTimeRange range) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    return transactions.where((t) => !t.date.isBefore(start) && t.date.isBefore(endExclusive)).toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+  }
+
+  /// Saved analyses requested within [range] (inclusive of both endpoint
+  /// calendar days) — see [ExportDataCard].
+  List<SavedAnalysis> savedAnalysesInRange(DateTimeRange range) {
+    final (start, endExclusive) = _normalizedBounds(range);
+    return savedAnalyses.where((a) => !a.createdAt.isBefore(start) && a.createdAt.isBefore(endExclusive)).toList();
+  }
+
   /// Bucketed income/expense series across [range], oldest first. Bucket
   /// granularity auto-selects for readability: daily for spans <= 31 days,
   /// weekly (7-day buckets anchored at range.start) for spans <= 180 days,

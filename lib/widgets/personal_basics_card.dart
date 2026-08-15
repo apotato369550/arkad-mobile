@@ -20,6 +20,7 @@ class PersonalBasicsCard extends StatefulWidget {
 
 class _PersonalBasicsCardState extends State<PersonalBasicsCard> {
   late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
   late final TextEditingController _jobTitleController;
   late final TextEditingController _goalOtherController;
   late final TextEditingController _longTermGoalController;
@@ -35,6 +36,7 @@ class _PersonalBasicsCardState extends State<PersonalBasicsCard> {
     super.initState();
     final profile = widget.appState.profile;
     _nameController = TextEditingController(text: profile.displayName);
+    _emailController = TextEditingController(text: profile.email);
     _jobTitleController = TextEditingController(text: profile.jobTitle);
     _goalOtherController = TextEditingController(text: profile.goalOther);
     _longTermGoalController = TextEditingController(text: profile.longTermGoal);
@@ -53,6 +55,7 @@ class _PersonalBasicsCardState extends State<PersonalBasicsCard> {
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _jobTitleController.dispose();
     _goalOtherController.dispose();
     _longTermGoalController.dispose();
@@ -74,6 +77,7 @@ class _PersonalBasicsCardState extends State<PersonalBasicsCard> {
     widget.appState.updateProfile(
       widget.appState.profile.copyWith(
         displayName: _nameController.text.trim(),
+        email: _emailController.text.trim(),
         countryCode: _countryCode,
         currencyCode: _currencyCode,
         jobTitle: _jobTitleController.text.trim(),
@@ -99,6 +103,12 @@ class _PersonalBasicsCardState extends State<PersonalBasicsCard> {
           Text('Personal basics', style: AppTextStyles.cardHeading()),
           const SizedBox(height: 16),
           TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Display name')),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(labelText: 'Email'),
+          ),
           const SizedBox(height: 12),
           Text('Country', style: AppTextStyles.metadata()),
           const SizedBox(height: 8),

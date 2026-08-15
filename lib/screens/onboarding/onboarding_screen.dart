@@ -10,7 +10,7 @@ import '../../widgets/country_picker_field.dart';
 import '../../widgets/goal_idea_chips.dart';
 import '../../widgets/goal_type_selector.dart';
 
-/// Seven-step, local-only onboarding. See STYLE_GUIDE.md § Onboarding.
+/// Eight-step, local-only onboarding. See STYLE_GUIDE.md § Onboarding.
 /// No landing/auth page on mobile — this is the app's first screen.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key, required this.appState});
@@ -24,6 +24,7 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int _step = 0;
   late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
   late final TextEditingController _jobTitleController;
   late final TextEditingController _goalOtherController;
   late final TextEditingController _longTermGoalController;
@@ -36,6 +37,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   static const _titles = [
     'What should we call you?',
+    'What\'s your email?',
     'Where are you from?',
     'What do you do?',
     'What do you plan to achieve with Arkad?',
@@ -44,13 +46,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'What\'s your typical monthly income?',
   ];
 
-  static const _requiredSteps = {0, 1, 3};
+  static const _requiredSteps = {0, 2, 4};
 
   @override
   void initState() {
     super.initState();
     final profile = widget.appState.profile;
     _nameController = TextEditingController(text: profile.displayName);
+    _emailController = TextEditingController(text: profile.email);
     _jobTitleController = TextEditingController(text: profile.jobTitle);
     _goalOtherController = TextEditingController(text: profile.goalOther);
     _longTermGoalController = TextEditingController(text: profile.longTermGoal);
@@ -65,6 +68,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _jobTitleController.dispose();
     _goalOtherController.dispose();
     _longTermGoalController.dispose();
@@ -79,9 +83,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     switch (_step) {
       case 0:
         return _nameController.text.trim().isNotEmpty;
-      case 1:
+      case 2:
         return _countryCode.isNotEmpty;
-      case 3:
+      case 4:
         if (_goalType.isEmpty) return false;
         if (_goalType == 'Other') return _goalOtherController.text.trim().isNotEmpty;
         return true;
@@ -100,14 +104,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       switch (_step) {
         case 0:
           _nameController.clear();
-        case 2:
+        case 1:
+          _emailController.clear();
+        case 3:
           _jobTitleController.clear();
           _occupationField = '';
-        case 4:
-          _longTermGoalController.clear();
         case 5:
-          _savingsGoalController.clear();
+          _longTermGoalController.clear();
         case 6:
+          _savingsGoalController.clear();
+        case 7:
           _incomeController.clear();
       }
     }
@@ -131,6 +137,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     widget.appState.updateProfile(
       widget.appState.profile.copyWith(
         displayName: _nameController.text.trim(),
+        email: _emailController.text.trim(),
         countryCode: _countryCode,
         currencyCode: _currencyCode,
         jobTitle: _jobTitleController.text.trim(),
@@ -219,6 +226,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           onChanged: (_) => setState(() {}),
         );
       case 1:
+        return TextField(
+          controller: _emailController,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(hintText: 'you@example.com'),
+        );
+      case 2:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -232,7 +246,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ],
           ],
         );
-      case 2:
+      case 3:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -256,13 +270,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ],
         );
-      case 3:
+      case 4:
         return GoalTypeSelector(
           selected: _goalType,
           onChanged: (v) => setState(() => _goalType = v),
           otherController: _goalOtherController,
         );
-      case 4:
+      case 5:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -278,7 +292,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const GoalIdeaList(),
           ],
         );
-      case 5:
+      case 6:
         return TextField(
           controller: _savingsGoalController,
           autofocus: true,
@@ -289,7 +303,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             prefixText: '${currencySymbolFor(_currencyCode)} ',
           ),
         );
-      case 6:
+      case 7:
         return TextField(
           controller: _incomeController,
           autofocus: true,

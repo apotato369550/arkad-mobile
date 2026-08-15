@@ -11,6 +11,7 @@ const goalOptions = [
 class Profile {
   Profile({
     this.displayName = '',
+    this.email = '',
     this.countryCode = '',
     this.currencyCode = 'USD',
     this.jobTitle = '',
@@ -24,6 +25,7 @@ class Profile {
   });
 
   final String displayName;
+  final String email;
   final String countryCode;
   final String currencyCode;
   final String jobTitle;
@@ -45,6 +47,7 @@ class Profile {
 
   Profile copyWith({
     String? displayName,
+    String? email,
     String? countryCode,
     String? currencyCode,
     String? jobTitle,
@@ -60,6 +63,7 @@ class Profile {
   }) {
     return Profile(
       displayName: displayName ?? this.displayName,
+      email: email ?? this.email,
       countryCode: countryCode ?? this.countryCode,
       currencyCode: currencyCode ?? this.currencyCode,
       jobTitle: jobTitle ?? this.jobTitle,
@@ -78,6 +82,7 @@ class Profile {
   factory Profile.fromJson(Map<String, dynamic> json) {
     return Profile(
       displayName: json['displayName'] as String? ?? '',
+      email: json['email'] as String? ?? '',
       countryCode: json['countryCode'] as String? ?? '',
       currencyCode: json['currencyCode'] as String? ?? 'USD',
       jobTitle: json['jobTitle'] as String? ?? '',
@@ -93,6 +98,7 @@ class Profile {
 
   Map<String, dynamic> toJson() => {
         'displayName': displayName,
+        'email': email,
         'countryCode': countryCode,
         'currencyCode': currencyCode,
         'jobTitle': jobTitle,
