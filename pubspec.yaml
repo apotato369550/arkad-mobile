@@ -71,6 +71,8 @@ flutter:
   assets:
     - assets/icon/arkad-logo.png
     - assets/icon/arkad-icon.png
+    - assets/extracted/tinted/green/
+    - assets/extracted/tinted/red/
     - .env
 
   # To add assets to your application, add an assets section, like this:

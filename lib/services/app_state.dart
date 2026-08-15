@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
 import '../models/analysis_period.dart';
 import '../models/api_config.dart';
+import '../models/category.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/profile.dart';
@@ -74,6 +75,7 @@ class AppState extends ChangeNotifier {
         profile = _persistence.loadProfile(),
         incomeCategories = _persistence.loadIncomeCategories(),
         expenseCategories = _persistence.loadExpenseCategories(),
+        categoryIcons = _persistence.loadCategoryIcons(),
         apiConfig = _persistence.loadApiConfig(),
         conversations = _persistence.loadConversations(),
         activeConversationId = _determineActiveConversationId(_persistence.loadConversations()),
@@ -89,6 +91,8 @@ class AppState extends ChangeNotifier {
   Profile profile;
   List<String> incomeCategories;
   List<String> expenseCategories;
+  /// Icon keys for custom categories, by name — see [categoryIconKeyFor].
+  Map<String, String> categoryIcons;
   ApiConfig apiConfig;
   List<Conversation> conversations;
   String? activeConversationId;
@@ -427,7 +431,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addCategory({required bool isIncome, required String name}) {
+  void addCategory({required bool isIncome, required String name, required String iconKey}) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     if (isIncome) {
@@ -439,6 +443,8 @@ class AppState extends ChangeNotifier {
       expenseCategories = [...expenseCategories, trimmed];
       _persistence.saveExpenseCategories(expenseCategories);
     }
+    categoryIcons = {...categoryIcons, trimmed: iconKey};
+    _persistence.saveCategoryIcons(categoryIcons);
     notifyListeners();
   }
 
@@ -449,6 +455,10 @@ class AppState extends ChangeNotifier {
     } else {
       expenseCategories = expenseCategories.where((c) => c != name).toList();
       _persistence.saveExpenseCategories(expenseCategories);
+    }
+    if (categoryIcons.containsKey(name)) {
+      categoryIcons = {...categoryIcons}..remove(name);
+      _persistence.saveCategoryIcons(categoryIcons);
     }
     HapticFeedback.lightImpact();
     notifyListeners();
@@ -894,6 +904,7 @@ class AppState extends ChangeNotifier {
     profile = Profile();
     incomeCategories = _persistence.loadIncomeCategories();
     expenseCategories = _persistence.loadExpenseCategories();
+    categoryIcons = _persistence.loadCategoryIcons();
     apiConfig = ApiConfig();
     conversations = [];
     activeConversationId = null;

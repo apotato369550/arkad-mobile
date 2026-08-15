@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'app_card.dart';
+import 'category_create_sheet.dart';
+import '../models/category.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
@@ -19,20 +21,8 @@ class CategoryManager extends StatefulWidget {
 
 class _CategoryManagerState extends State<CategoryManager> {
   TransactionType _type = TransactionType.expense;
-  final _controller = TextEditingController();
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _add() {
-    final name = _controller.text.trim();
-    if (name.isEmpty) return;
-    widget.appState.addCategory(isIncome: _type == TransactionType.income, name: name);
-    _controller.clear();
-  }
+  bool get _isIncome => _type == TransactionType.income;
 
   Future<void> _confirmDelete(String name) async {
     final confirmed = await showDialog<bool>(
@@ -55,15 +45,15 @@ class _CategoryManagerState extends State<CategoryManager> {
       ),
     );
     if (confirmed == true) {
-      widget.appState.deleteCategory(isIncome: _type == TransactionType.income, name: name);
+      widget.appState.deleteCategory(isIncome: _isIncome, name: name);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final categories = _type == TransactionType.income
-        ? widget.appState.incomeCategories
-        : widget.appState.expenseCategories;
+    final categories = _isIncome ? widget.appState.incomeCategories : widget.appState.expenseCategories;
+    final color = _isIncome ? AppColors.darkGreen : AppColors.clay;
+    final tint = _isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14);
 
     return AppCard(
       child: Column(
@@ -82,46 +72,41 @@ class _CategoryManagerState extends State<CategoryManager> {
             ),
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final c in categories)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                  decoration: BoxDecoration(color: AppColors.sageTint, borderRadius: BorderRadius.circular(AppRadii.pill)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(c, style: AppTextStyles.manrope(fontWeight: FontWeight.w600, fontSize: 13)),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: () => _confirmDelete(c),
-                        child: Icon(Icons.close, size: 14, color: AppColors.ink60),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 0.82,
+            ),
+            itemCount: categories.length,
+            itemBuilder: (context, i) {
+              final name = categories[i];
+              final iconKey = categoryIconKeyFor(name, customIcons: widget.appState.categoryIcons);
+              return _CategoryGridTile(
+                name: name,
+                iconKey: iconKey,
+                isIncome: _isIncome,
+                color: color,
+                tint: tint,
+                onDelete: () => _confirmDelete(name),
+              );
+            },
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(hintText: 'New category name'),
-                  onSubmitted: (_) => _add(),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => showCreateCategorySheet(context, appState: widget.appState, isIncome: _isIncome),
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('Create new category'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: color,
+                padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              const SizedBox(width: 10),
-              ElevatedButton(
-                onPressed: _add,
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(16)),
-                child: const Icon(Icons.add, size: 20),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -148,6 +133,66 @@ class _CategoryManagerState extends State<CategoryManager> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CategoryGridTile extends StatelessWidget {
+  const _CategoryGridTile({
+    required this.name,
+    required this.iconKey,
+    required this.isIncome,
+    required this.color,
+    required this.tint,
+    required this.onDelete,
+  });
+
+  final String name;
+  final String iconKey;
+  final bool isIncome;
+  final Color color;
+  final Color tint;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Column(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(AppRadii.iconTile)),
+              child: Image.asset(categoryIconAsset(iconKey, isIncome: isIncome)),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              name,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.manrope(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+            ),
+          ],
+        ),
+        Positioned(
+          top: -6,
+          right: 2,
+          child: GestureDetector(
+            onTap: onDelete,
+            child: Container(
+              width: 20,
+              height: 20,
+              decoration: const BoxDecoration(color: AppColors.paper, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Icon(Icons.close, size: 13, color: AppColors.ink60),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

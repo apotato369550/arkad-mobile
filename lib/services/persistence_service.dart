@@ -27,6 +27,7 @@ class PersistenceService {
   static const _profileKey = 'arkad:profile:v1';
   static const _incomeCategoriesKey = 'arkad:income-categories:v1';
   static const _expenseCategoriesKey = 'arkad:expense-categories:v1';
+  static const _categoryIconsKey = 'arkad:category-icons:v1';
   static const _apiConfigKey = 'arkad:api-config:v1';
   static const _conversationsKey = 'arkad:conversations:v1';
   static const _chatHistoryKey = 'arkad:chat-history:v1';
@@ -128,6 +129,24 @@ class PersistenceService {
 
   Future<void> saveExpenseCategories(List<String> categories) {
     return _prefs.setStringList(_expenseCategoriesKey, categories);
+  }
+
+  /// Icon keys chosen for custom categories, by category name (see
+  /// lib/models/category.dart § categoryIconKeyFor). Default categories
+  /// aren't stored here — their icon comes from the built-in mapping.
+  Map<String, String> loadCategoryIcons() {
+    final raw = _prefs.getString(_categoryIconsKey);
+    if (raw == null) return {};
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return json.map((key, value) => MapEntry(key, value as String));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveCategoryIcons(Map<String, String> icons) {
+    return _prefs.setString(_categoryIconsKey, jsonEncode(icons));
   }
 
   ApiConfig loadApiConfig() {
@@ -250,6 +269,7 @@ class PersistenceService {
       _prefs.remove(_profileKey),
       _prefs.remove(_incomeCategoriesKey),
       _prefs.remove(_expenseCategoriesKey),
+      _prefs.remove(_categoryIconsKey),
       _prefs.remove(_apiConfigKey),
       _prefs.remove(_conversationsKey),
       _prefs.remove(_chatHistoryKey),
