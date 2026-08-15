@@ -132,9 +132,10 @@ class OpenRouterService {
     return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
 
-  /// One-shot question: how close is the user to their stated financial
-  /// goal/savings target, given this period's net. Same non-chat shape as
-  /// [analyzeFinances] — no history, no transaction extraction.
+  /// One-shot question: how purposeful the user's spending was this period —
+  /// whether it served their stated goals and values or drifted into
+  /// impulsive/low-value spending. Same non-chat shape as [analyzeFinances]
+  /// — no history, no transaction extraction.
   Future<String> analyzeGoalProgress({
     required String apiKey,
     required String modelSlug,
@@ -176,7 +177,7 @@ Total income: ${formatCurrency(totalIncome)}
 Total expenses: ${formatCurrency(totalExpense)}
 Net: ${formatCurrency(net)}
 ${derivedLines.isEmpty ? '' : '$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
-Question: How close is the user to achieving their stated financial goal and/or savings target, given this period's net? If a goal target date is set, factor in whether the pace is realistic for that timeline. If no goal or savings target is stated, say so plainly and suggest they set one in their profile.
+Question: How purposeful was the user's spending this period — did it clearly serve their stated goals and values, or did a meaningful share drift into impulsive or low-value spending? Point to specific categories or patterns that show intentional vs. unintentional spending. If no goal or savings target is stated, still assess purposefulness using savings rate and category concentration, and suggest they set a goal in their profile.
 
 $_responseStyle
 ''';
@@ -195,9 +196,8 @@ $_responseStyle
     return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
 
-  /// One-shot question: which expense categories look like the best
-  /// opportunities to cut spending, and why. Same non-chat shape as
-  /// [analyzeFinances].
+  /// One-shot question: where this period's spending could have been saved
+  /// better, ranked by opportunity. Same non-chat shape as [analyzeFinances].
   Future<String> analyzeCostCutting({
     required String apiKey,
     required String modelSlug,
@@ -239,7 +239,7 @@ Period: ${formatDate(range.start)} to ${formatDate(range.end)}
 Expense breakdown by category:
 ${categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines}
 ${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}
-Question: Which categories look like the best opportunities to cut spending, and why? Rank the top 1-3 opportunities. If the user has fixed monthly obligations on file, don't suggest cutting those — focus on discretionary categories.
+Question: Looking at this period's spending, where could money have been saved better? Rank the top 1-3 opportunities and explain concretely what "saved better" would have looked like for each. If the user has fixed monthly obligations on file, don't suggest cutting those — focus on discretionary categories.
 
 $_responseStyle
 ''';

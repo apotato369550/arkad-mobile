@@ -144,11 +144,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: _selectedKnownSlug,
+                isExpanded: true,
                 style: AppTextStyles.dmMono(color: AppColors.ink),
                 decoration: const InputDecoration(labelText: 'Model'),
                 items: [
-                  for (final slug in knownFreeModelSlugs) DropdownMenuItem(value: slug, child: Text(slug)),
-                  const DropdownMenuItem(value: _customModelSentinel, child: Text('Custom (advanced)…')),
+                  for (final slug in knownFreeModelSlugs)
+                    DropdownMenuItem(
+                      value: slug,
+                      child: Text(slug, overflow: TextOverflow.ellipsis),
+                    ),
+                  const DropdownMenuItem(
+                    value: _customModelSentinel,
+                    child: Text('Custom (advanced)…', overflow: TextOverflow.ellipsis),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value == null) return;

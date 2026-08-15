@@ -26,6 +26,15 @@ class _AppShellState extends State<AppShell> {
   AppView _view = AppView.dashboard;
   int _highlightedTransactionId = -1;
 
+  @override
+  void initState() {
+    super.initState();
+    // Fire-and-forget: silently checks whether any analysis period is due
+    // for an automatic request. Updates surface later via AppState's own
+    // notifyListeners()/ListenableBuilder machinery, not this call directly.
+    widget.appState.runAutomaticAnalysisChecks();
+  }
+
   void _openChat() {
     Navigator.of(context).push(
       MaterialPageRoute(

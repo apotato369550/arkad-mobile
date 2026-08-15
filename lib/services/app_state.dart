@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
@@ -24,6 +22,13 @@ class AnalysisRequestException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Outcome of one of [AppState]'s four one-shot OpenRouter Q&A calls —
+/// [status] is [AnalysisAnswerStatus.loaded] with [text] set on success, or
+/// [AnalysisAnswerStatus.error] with [error] set on failure. Never
+/// `AnalysisAnswerStatus.loading` — by the time a result exists, the call has
+/// resolved one way or the other.
+typedef _AnswerResult = ({String? text, AnalysisAnswerStatus status, String? error});
 
 enum CashFlowRange { sevenDays, sixMonths, twelveMonths }
 
@@ -557,14 +562,38 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  bool _autoAnalysisChecked = false;
+
+  /// Silently requests an analysis for any [AnalysisPeriod] whose cooldown has
+  /// elapsed and that has enough recorded activity — the automatic
+  /// counterpart to the user-triggered "Request analysis" flow. Reuses the
+  /// exact same [canRequestAnalysis]/[meetsActivityThreshold] gates as a
+  /// manual request, so automatic and manual requests can never double up or
+  /// bypass the cooldown. Call once per app session.
+  Future<void> runAutomaticAnalysisChecks() async {
+    if (_autoAnalysisChecked || !hasApiKey) return;
+    _autoAnalysisChecked = true;
+    for (final period in AnalysisPeriod.values) {
+      if (!canRequestAnalysis(period) || !meetsActivityThreshold(period)) continue;
+      try {
+        await requestAnalysis(period);
+      } catch (_) {
+        // Best-effort background check — failures are only surfaced for
+        // user-initiated requests.
+      }
+    }
+  }
+
   /// Requests a new [SavedAnalysis] for [period]: validates the cooldown and
   /// activity threshold, snapshots the current numbers, derives the richer
   /// context (savings rate, prior-period comparison, top expense category,
   /// income-vs-typical, and the last same-period-type analysis for
-  /// continuity), inserts a loading-state entry immediately, and kicks off
-  /// (without awaiting) the four independent OpenRouter Q&A calls that fill
-  /// it in. Returns the new analysis's id right away — callers that want to
-  /// watch it fill in should listen to AppState and re-read [findAnalysis].
+  /// continuity), then awaits all four independent OpenRouter Q&A calls
+  /// before doing anything else. Only once every call has resolved (success
+  /// or failure) is the analysis saved and the cooldown consumed — if all
+  /// four fail, nothing is saved and [AnalysisRequestException] is thrown so
+  /// the request can be retried without waiting out a cooldown it never
+  /// used. Returns the new analysis's id.
   Future<String> requestAnalysis(AnalysisPeriod period) async {
     if (!hasApiKey) {
       throw AnalysisRequestException(
@@ -627,6 +656,60 @@ class AppState extends ChangeNotifier {
     }
 
     final id = now.millisecondsSinceEpoch.toString();
+
+    final results = await Future.wait([
+      _fetchGoalProgress(
+        range,
+        totalIncome,
+        totalExpense,
+        savingsRate,
+        typicalIncomeForPeriod,
+        previousAnalysis,
+      ),
+      _fetchCostCutting(
+        range,
+        expenseCats,
+        topCategoryName,
+        topCategoryAmount,
+        topCategoryPercent,
+        prevExpense,
+      ),
+      _fetchOverallAssessment(
+        range,
+        totalIncome,
+        totalExpense,
+        expenseCats,
+        incomeCats,
+        savingsRate,
+        prevIncome,
+        prevExpense,
+        topCategoryName,
+        topCategoryAmount,
+        topCategoryPercent,
+        typicalIncomeForPeriod,
+        previousAnalysis,
+      ),
+      _fetchActionableSteps(
+        range,
+        totalIncome,
+        totalExpense,
+        expenseCats,
+        incomeCats,
+        savingsRate,
+        topCategoryName,
+        topCategoryAmount,
+        topCategoryPercent,
+        previousAnalysis,
+      ),
+    ]);
+
+    if (results.every((r) => r.status == AnalysisAnswerStatus.error)) {
+      throw AnalysisRequestException(
+        'Arkad could not reach OpenRouter for this analysis — check your connection or API '
+        'key in Settings and try again.',
+      );
+    }
+
     final analysis = SavedAnalysis(
       id: id,
       period: period,
@@ -635,9 +718,22 @@ class AppState extends ChangeNotifier {
       createdAt: now,
       totalIncome: totalIncome,
       totalExpense: totalExpense,
+      previousPeriodExpense: prevExpense,
       expenseByCategory: expenseCats,
       incomeByCategory: incomeCats,
       cashFlowBuckets: buckets,
+      goalProgressText: results[0].text,
+      goalProgressStatus: results[0].status,
+      goalProgressError: results[0].error,
+      costCuttingText: results[1].text,
+      costCuttingStatus: results[1].status,
+      costCuttingError: results[1].error,
+      overallText: results[2].text,
+      overallStatus: results[2].status,
+      overallError: results[2].error,
+      actionableStepsText: results[3].text,
+      actionableStepsStatus: results[3].status,
+      actionableStepsError: results[3].error,
     );
 
     savedAnalyses = [analysis, ...savedAnalyses];
@@ -646,61 +742,10 @@ class AppState extends ChangeNotifier {
     _persistence.saveAnalysisRequestLog(_analysisRequestLog);
     notifyListeners();
 
-    // Fire-and-forget: each slot updates independently and a failure in one
-    // must not affect the other three.
-    unawaited(_fetchGoalProgress(
-      id,
-      range,
-      totalIncome,
-      totalExpense,
-      savingsRate,
-      typicalIncomeForPeriod,
-      previousAnalysis,
-    ));
-    unawaited(_fetchCostCutting(
-      id,
-      range,
-      expenseCats,
-      topCategoryName,
-      topCategoryAmount,
-      topCategoryPercent,
-      prevExpense,
-    ));
-    unawaited(_fetchOverallAssessment(
-      id,
-      range,
-      totalIncome,
-      totalExpense,
-      expenseCats,
-      incomeCats,
-      savingsRate,
-      prevIncome,
-      prevExpense,
-      topCategoryName,
-      topCategoryAmount,
-      topCategoryPercent,
-      typicalIncomeForPeriod,
-      previousAnalysis,
-    ));
-    unawaited(_fetchActionableSteps(
-      id,
-      range,
-      totalIncome,
-      totalExpense,
-      expenseCats,
-      incomeCats,
-      savingsRate,
-      topCategoryName,
-      topCategoryAmount,
-      topCategoryPercent,
-      previousAnalysis,
-    ));
-
     return id;
   }
 
-  Future<void> _fetchGoalProgress(
-    String analysisId,
+  Future<_AnswerResult> _fetchGoalProgress(
     DateTimeRange range,
     double totalIncome,
     double totalExpense,
@@ -720,25 +765,14 @@ class AppState extends ChangeNotifier {
         typicalMonthlyIncomeForPeriod: typicalIncomeForPeriod,
         previousAnalysis: previousAnalysis,
       );
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(
-          goalProgressText: text,
-          goalProgressStatus: AnalysisAnswerStatus.loaded,
-          clearGoalProgressError: true,
-        ),
-      );
+      return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
       final message = e is OpenRouterException ? e.message : 'Could not load this section.';
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(goalProgressStatus: AnalysisAnswerStatus.error, goalProgressError: message),
-      );
+      return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
 
-  Future<void> _fetchCostCutting(
-    String analysisId,
+  Future<_AnswerResult> _fetchCostCutting(
     DateTimeRange range,
     Map<String, double> expenseCats,
     String? topCategoryName,
@@ -758,25 +792,14 @@ class AppState extends ChangeNotifier {
         topCategoryPercent: topCategoryPercent,
         previousPeriodExpense: prevExpense,
       );
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(
-          costCuttingText: text,
-          costCuttingStatus: AnalysisAnswerStatus.loaded,
-          clearCostCuttingError: true,
-        ),
-      );
+      return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
       final message = e is OpenRouterException ? e.message : 'Could not load this section.';
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(costCuttingStatus: AnalysisAnswerStatus.error, costCuttingError: message),
-      );
+      return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
 
-  Future<void> _fetchOverallAssessment(
-    String analysisId,
+  Future<_AnswerResult> _fetchOverallAssessment(
     DateTimeRange range,
     double totalIncome,
     double totalExpense,
@@ -810,25 +833,14 @@ class AppState extends ChangeNotifier {
         typicalMonthlyIncomeForPeriod: typicalIncomeForPeriod,
         previousAnalysis: previousAnalysis,
       );
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(
-          overallText: text,
-          overallStatus: AnalysisAnswerStatus.loaded,
-          clearOverallError: true,
-        ),
-      );
+      return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
       final message = e is OpenRouterException ? e.message : 'Could not load this section.';
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(overallStatus: AnalysisAnswerStatus.error, overallError: message),
-      );
+      return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
 
-  Future<void> _fetchActionableSteps(
-    String analysisId,
+  Future<_AnswerResult> _fetchActionableSteps(
     DateTimeRange range,
     double totalIncome,
     double totalExpense,
@@ -856,38 +868,11 @@ class AppState extends ChangeNotifier {
         topCategoryPercent: topCategoryPercent,
         previousAnalysis: previousAnalysis,
       );
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(
-          actionableStepsText: text,
-          actionableStepsStatus: AnalysisAnswerStatus.loaded,
-          clearActionableStepsError: true,
-        ),
-      );
+      return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
       final message = e is OpenRouterException ? e.message : 'Could not load this section.';
-      _updateSavedAnalysis(
-        analysisId,
-        (a) => a.copyWith(
-          actionableStepsStatus: AnalysisAnswerStatus.error,
-          actionableStepsError: message,
-        ),
-      );
+      return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
-  }
-
-  /// Applies [update] to the [SavedAnalysis] with [id] wherever it currently
-  /// sits in [savedAnalyses] (it may have moved position since it was
-  /// created, but it won't disappear), persists, and notifies. No-op if the
-  /// analysis was deleted in the meantime.
-  void _updateSavedAnalysis(String id, SavedAnalysis Function(SavedAnalysis) update) {
-    if (!savedAnalyses.any((a) => a.id == id)) return;
-    savedAnalyses = [
-      for (final a in savedAnalyses)
-        if (a.id == id) update(a) else a,
-    ];
-    _persistence.saveSavedAnalyses(savedAnalyses);
-    notifyListeners();
   }
 
   SavedAnalysis? findAnalysis(String id) {

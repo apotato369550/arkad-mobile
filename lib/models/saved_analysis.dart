@@ -44,6 +44,7 @@ class SavedAnalysis {
     required this.createdAt,
     required this.totalIncome,
     required this.totalExpense,
+    required this.previousPeriodExpense,
     required this.expenseByCategory,
     required this.incomeByCategory,
     required this.cashFlowBuckets,
@@ -68,6 +69,7 @@ class SavedAnalysis {
   final DateTime createdAt;
   final double totalIncome;
   final double totalExpense;
+  final double previousPeriodExpense;
   final Map<String, double> expenseByCategory;
   final Map<String, double> incomeByCategory;
   final List<CashFlowBucket> cashFlowBuckets;
@@ -120,6 +122,7 @@ class SavedAnalysis {
       createdAt: createdAt,
       totalIncome: totalIncome,
       totalExpense: totalExpense,
+      previousPeriodExpense: previousPeriodExpense,
       expenseByCategory: expenseByCategory,
       incomeByCategory: incomeByCategory,
       cashFlowBuckets: cashFlowBuckets,
@@ -153,6 +156,7 @@ class SavedAnalysis {
       createdAt: DateTime.parse(json['createdAt'] as String),
       totalIncome: (json['totalIncome'] as num).toDouble(),
       totalExpense: (json['totalExpense'] as num).toDouble(),
+      previousPeriodExpense: (json['previousPeriodExpense'] as num?)?.toDouble() ?? 0.0,
       expenseByCategory: (json['expenseByCategory'] as Map<String, dynamic>)
           .map((k, v) => MapEntry(k, (v as num).toDouble())),
       incomeByCategory: (json['incomeByCategory'] as Map<String, dynamic>)
@@ -187,6 +191,7 @@ class SavedAnalysis {
         'createdAt': createdAt.toIso8601String(),
         'totalIncome': totalIncome,
         'totalExpense': totalExpense,
+        'previousPeriodExpense': previousPeriodExpense,
         'expenseByCategory': expenseByCategory,
         'incomeByCategory': incomeByCategory,
         'cashFlowBuckets': cashFlowBuckets.map((b) => b.toJson()).toList(),

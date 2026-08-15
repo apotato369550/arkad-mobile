@@ -4,7 +4,7 @@
 const goalOptions = [
   'To Save More',
   'To Spend Less',
-  'To  track my Income/Expenses',
+  'To Track my Income/Expenses',
   'Other',
 ];
 

@@ -5,9 +5,9 @@ import '../services/formatters.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/analysis_stat_tiles.dart' show showStatDetailSheet;
 import '../widgets/app_card.dart';
 import '../widgets/income_expense_bar_chart.dart';
-import '../widgets/category_pie_chart.dart';
 import '../widgets/stat_card.dart';
 import 'analysis_detail_screen.dart';
 import 'analysis_list_screen.dart';
@@ -53,24 +53,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
     final dateRange = widget.appState.dateTimeRangeForCashFlow(_range);
     final (totalIncome, totalExpense) = widget.appState.totalsForDateRange(dateRange);
     final buckets = widget.appState.cashFlow(_range);
-    final expenseByCategory = widget.appState.expenseByCategory(dateRange);
-    final incomeByCategory = widget.appState.incomeByCategory(dateRange);
-
-    final spanDays = dateRange.end.difference(dateRange.start).inDays + 1;
-
-    // Net: income - expense
-    final net = totalIncome - totalExpense;
-
-    // Average daily expense
-    final avgDailyExpense = spanDays > 0 ? totalExpense / spanDays : 0.0;
-
-    // Previous period delta
-    final prevRange = DateTimeRange(
-      start: dateRange.start.subtract(Duration(days: spanDays)),
-      end: dateRange.start.subtract(const Duration(days: 1)),
-    );
-    final (_, prevExpense) = widget.appState.totalsForDateRange(prevRange);
-    final expenseDelta = prevExpense > 0 ? (totalExpense - prevExpense) / prevExpense : 0.0;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
@@ -84,29 +66,49 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         const SizedBox(height: 28),
 
         // Summary stats row
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+        IntrinsicHeight(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              StatCard(
-                label: 'Income',
-                amount: totalIncome,
-                icon: Icons.trending_up_outlined,
-                isIncome: true,
+              Expanded(
+                child: StatCard(
+                  label: 'Income',
+                  amount: totalIncome,
+                  icon: Icons.trending_up_outlined,
+                  isIncome: true,
+                  onTap: () => showStatDetailSheet(
+                    context,
+                    title: 'Income',
+                    amount: totalIncome,
+                    isIncome: true,
+                    periodCaption: _range.caption,
+                    explanation: 'Money that came in during this period — your paychecks, side '
+                        'income, and anything else you earned or received.',
+                    breakdown: widget.appState.incomeByCategory(dateRange),
+                    breakdownEmptyLabel: 'No income in this period',
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
-              StatCard(
-                label: 'Expenses',
-                amount: totalExpense,
-                icon: Icons.trending_down_outlined,
-                isIncome: false,
+              Expanded(
+                child: StatCard(
+                  label: 'Expenses',
+                  amount: totalExpense,
+                  icon: Icons.trending_down_outlined,
+                  isIncome: false,
+                  onTap: () => showStatDetailSheet(
+                    context,
+                    title: 'Expenses',
+                    amount: totalExpense,
+                    isIncome: false,
+                    periodCaption: _range.caption,
+                    explanation: 'Money that went out during this period — everything you '
+                        'spent, paid, or gave away.',
+                    breakdown: widget.appState.expenseByCategory(dateRange),
+                    breakdownEmptyLabel: 'No expenses in this period',
+                  ),
+                ),
               ),
-              const SizedBox(width: 12),
-              _NetTile(amount: net),
-              const SizedBox(width: 12),
-              _AverageTile(amount: avgDailyExpense),
-              const SizedBox(width: 12),
-              _DeltaTile(delta: expenseDelta),
             ],
           ),
         ),
@@ -116,22 +118,6 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         IncomeExpenseBarChart(
           buckets: buckets,
           labelBuilder: _labelForBucket,
-        ),
-        const SizedBox(height: 28),
-
-        // Expense by category pie chart
-        CategoryPieChart(
-          title: 'Expenses by category',
-          data: expenseByCategory,
-          emptyLabel: 'No expenses in this range',
-        ),
-        const SizedBox(height: 28),
-
-        // Income by category pie chart
-        CategoryPieChart(
-          title: 'Income by category',
-          data: incomeByCategory,
-          emptyLabel: 'No income in this range',
         ),
         const SizedBox(height: 28),
 
@@ -166,6 +152,13 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 requesting: _requesting,
                 onRequest: _requestAnalysis,
               ),
+              if (_requesting) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Arkad is analyzing your finances — this can take up to a minute…',
+                  style: AppTextStyles.metadata(),
+                ),
+              ],
               const SizedBox(height: 16),
               TextButton.icon(
                 onPressed: () => Navigator.of(context).push(
@@ -343,105 +336,6 @@ class _RangeSelector extends StatelessWidget {
             color: isSelected ? AppColors.paper : AppColors.ink60,
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Custom stat tile for net income/expense (no income/expense tint).
-class _NetTile extends StatelessWidget {
-  const _NetTile({required this.amount});
-
-  final double amount;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            amount >= 0 ? Icons.check_circle_outline : Icons.warning_outlined,
-            size: 40,
-            color: amount >= 0 ? AppColors.darkGreen : AppColors.clay,
-          ),
-          const SizedBox(height: 16),
-          Text('Net', style: AppTextStyles.metadata()),
-          const SizedBox(height: 6),
-          Text(
-            formatCurrency(amount),
-            style: AppTextStyles.amount(fontSize: 20),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Custom stat tile for average daily expense.
-class _AverageTile extends StatelessWidget {
-  const _AverageTile({required this.amount});
-
-  final double amount;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.calendar_today_outlined,
-            size: 40,
-            color: AppColors.sage,
-          ),
-          const SizedBox(height: 16),
-          Text('Daily avg', style: AppTextStyles.metadata()),
-          const SizedBox(height: 6),
-          Text(
-            formatCurrency(amount),
-            style: AppTextStyles.amount(fontSize: 20),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Custom stat tile for expense delta vs previous period.
-class _DeltaTile extends StatelessWidget {
-  const _DeltaTile({required this.delta});
-
-  final double delta;
-
-  @override
-  Widget build(BuildContext context) {
-    final isUp = delta > 0;
-    final percent = (delta.abs() * 100).toStringAsFixed(0);
-
-    return AppCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            isUp ? Icons.trending_up_outlined : Icons.trending_down_outlined,
-            size: 40,
-            color: isUp ? AppColors.clay : AppColors.darkGreen,
-          ),
-          const SizedBox(height: 16),
-          Text('vs. prior', style: AppTextStyles.metadata()),
-          const SizedBox(height: 6),
-          Text(
-            '${isUp ? '▲' : '▼'} $percent%',
-            style: AppTextStyles.amount(
-              fontSize: 20,
-              color: isUp ? AppColors.clay : AppColors.darkGreen,
-            ),
-          ),
-        ],
       ),
     );
   }

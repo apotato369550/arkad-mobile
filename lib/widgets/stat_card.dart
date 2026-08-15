@@ -13,6 +13,7 @@ class StatCard extends StatelessWidget {
     required this.amount,
     required this.icon,
     required this.isIncome,
+    this.onTap,
   });
 
   final String label;
@@ -20,11 +21,16 @@ class StatCard extends StatelessWidget {
   final IconData icon;
   final bool isIncome;
 
+  /// When non-null, the whole card becomes tappable (e.g. to open a detail
+  /// sheet).
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
     final tint = isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14);
     final fg = isIncome ? AppColors.darkGreen : AppColors.clay;
     return AppCard(
+      onTap: onTap,
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,7 +39,15 @@ class StatCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text(label, style: AppTextStyles.metadata()),
           const SizedBox(height: 6),
-          Text(formatCurrency(amount), style: AppTextStyles.amount(fontSize: 20)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              formatCurrency(amount),
+              style: AppTextStyles.amount(fontSize: 20),
+              maxLines: 1,
+            ),
+          ),
         ],
       ),
     );

@@ -6,16 +6,18 @@ import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/analysis_stat_tiles.dart';
 import '../widgets/app_card.dart';
 import '../widgets/category_pie_chart.dart';
 import '../widgets/income_expense_bar_chart.dart';
 import '../widgets/stat_card.dart';
 
-/// Detail view for a single [SavedAnalysis]. The four Q&A slots
-/// (goal progress / cost cutting / overall / actionable steps) can each
-/// still be `loading` when this screen opens — AppState fetches them in the
-/// background and calls notifyListeners() as they resolve, so the
-/// ListenableBuilder here picks up each transition without any polling.
+/// Detail view for a single [SavedAnalysis]. By the time a [SavedAnalysis]
+/// exists, AppState has already awaited all four Q&A slots (goal progress /
+/// cost cutting / overall / actionable steps), so each is `loaded` or
+/// `error` — never `loading` — for analyses created after that change. The
+/// ListenableBuilder here still tracks AppState so edits (e.g. deletion)
+/// while this screen is open are reflected without polling.
 class AnalysisDetailScreen extends StatelessWidget {
   const AnalysisDetailScreen({super.key, required this.appState, required this.analysisId});
 
@@ -67,36 +69,82 @@ class _AnalysisBody extends StatelessWidget {
       for (final b in analysis.cashFlowBuckets) (b.start, b.income, b.expense),
     ];
 
+    final spanDays = analysis.rangeEnd.difference(analysis.rangeStart).inDays + 1;
+    final avgDailyExpense = spanDays > 0 ? analysis.totalExpense / spanDays : 0.0;
+    final prevExpense = analysis.previousPeriodExpense;
+    final expenseDelta = prevExpense > 0
+        ? (analysis.totalExpense - prevExpense) / prevExpense
+        : 0.0;
+
+    final periodCaption =
+        '${analysis.period.label} · ${formatDate(analysis.rangeStart)} – ${formatDate(analysis.rangeEnd)}';
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
         // Period header
-        Text(
-          '${analysis.period.label} · ${formatDate(analysis.rangeStart)} – ${formatDate(analysis.rangeEnd)}',
-          style: AppTextStyles.metadata(),
-        ),
+        Text(periodCaption, style: AppTextStyles.metadata()),
         const SizedBox(height: 20),
 
-        // Summary stats row
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+        // Income/Expenses row
+        IntrinsicHeight(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              StatCard(
-                label: 'Income',
-                amount: analysis.totalIncome,
-                icon: Icons.trending_up_outlined,
-                isIncome: true,
+              Expanded(
+                child: StatCard(
+                  label: 'Income',
+                  amount: analysis.totalIncome,
+                  icon: Icons.trending_up_outlined,
+                  isIncome: true,
+                  onTap: () => showStatDetailSheet(
+                    context,
+                    title: 'Income',
+                    amount: analysis.totalIncome,
+                    isIncome: true,
+                    periodCaption: periodCaption,
+                    explanation: 'Money that came in during this period — your paychecks, side '
+                        'income, and anything else you earned or received.',
+                    breakdown: analysis.incomeByCategory,
+                    breakdownEmptyLabel: 'No income in this period',
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
-              StatCard(
-                label: 'Expenses',
-                amount: analysis.totalExpense,
-                icon: Icons.trending_down_outlined,
-                isIncome: false,
+              Expanded(
+                child: StatCard(
+                  label: 'Expenses',
+                  amount: analysis.totalExpense,
+                  icon: Icons.trending_down_outlined,
+                  isIncome: false,
+                  onTap: () => showStatDetailSheet(
+                    context,
+                    title: 'Expenses',
+                    amount: analysis.totalExpense,
+                    isIncome: false,
+                    periodCaption: periodCaption,
+                    explanation: 'Money that went out during this period — everything you '
+                        'spent, paid, or gave away.',
+                    breakdown: analysis.expenseByCategory,
+                    breakdownEmptyLabel: 'No expenses in this period',
+                  ),
+                ),
               ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Net / Daily average / vs. prior row
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: NetStatTile(amount: net)),
               const SizedBox(width: 12),
-              _NetTile(amount: net),
+              Expanded(child: AverageStatTile(amount: avgDailyExpense)),
+              const SizedBox(width: 12),
+              Expanded(child: DeltaStatTile(delta: expenseDelta)),
             ],
           ),
         ),
@@ -125,14 +173,14 @@ class _AnalysisBody extends StatelessWidget {
 
         // Arkad's take — four independently-loading Q&A slots
         _AnswerCard(
-          heading: 'How close are we to your goal?',
+          heading: 'How purposeful was your spending?',
           status: analysis.goalProgressStatus,
           text: analysis.goalProgressText,
           error: analysis.goalProgressError,
         ),
         const SizedBox(height: 16),
         _AnswerCard(
-          heading: 'Where can we cut back?',
+          heading: 'What could have been saved better?',
           status: analysis.costCuttingStatus,
           text: analysis.costCuttingText,
           error: analysis.costCuttingError,
@@ -214,27 +262,6 @@ class _AnswerCard extends StatelessWidget {
                 style: AppTextStyles.body(color: AppColors.clay),
               ),
           },
-        ],
-      ),
-    );
-  }
-}
-
-class _NetTile extends StatelessWidget {
-  const _NetTile({required this.amount});
-
-  final double amount;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Net', style: AppTextStyles.metadata()),
-          const SizedBox(height: 32),
-          Text(formatCurrency(amount), style: AppTextStyles.amount(fontSize: 20)),
         ],
       ),
     );
