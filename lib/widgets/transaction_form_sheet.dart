@@ -122,13 +122,21 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
               ),
             ),
             const SizedBox(height: 18),
-            Text(
-              _isEditing ? 'Edit transaction' : 'Add transaction',
-              style: AppTextStyles.cardHeading(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _isEditing ? 'Edit transaction' : 'Add transaction',
+                  style: AppTextStyles.cardHeading(),
+                ),
+                if (_isEditing) _TypeBadge(type: _type),
+              ],
             ),
             const SizedBox(height: 20),
-            _TypeToggle(type: _type, onChanged: _setType),
-            const SizedBox(height: 18),
+            if (!_isEditing) ...[
+              _TypeToggle(type: _type, onChanged: _setType),
+              const SizedBox(height: 18),
+            ],
             TextField(
               controller: _merchantController,
               textCapitalization: TextCapitalization.words,
@@ -169,6 +177,34 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
               Center(child: ClayButton(label: 'Delete transaction', icon: Icons.delete_outline, onPressed: _delete)),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Non-interactive type indicator shown in place of [_TypeToggle] while
+/// editing — transaction type can't change after creation (see
+/// STYLE_GUIDE.md § Transaction modal).
+class _TypeBadge extends StatelessWidget {
+  const _TypeBadge({required this.type});
+  final TransactionType type;
+
+  @override
+  Widget build(BuildContext context) {
+    final isIncome = type == TransactionType.income;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        isIncome ? 'Income' : 'Expense',
+        style: AppTextStyles.manrope(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: isIncome ? AppColors.darkGreen : AppColors.clay,
         ),
       ),
     );
