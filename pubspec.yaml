@@ -43,6 +43,8 @@ dependencies:
   url_launcher: ^6.3.2
   fl_chart: ^0.69.0
   flutter_dotenv: ^5.2.1
+  pdf: ^3.11.1
+  printing: ^5.13.4
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +75,7 @@ flutter:
     - assets/icon/arkad-icon.png
     - assets/extracted/tinted/green/
     - assets/extracted/tinted/red/
+    - assets/fonts/NotoSans-Variable.ttf
     - .env
 
   # To add assets to your application, add an assets section, like this:

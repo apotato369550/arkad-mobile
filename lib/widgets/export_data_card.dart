@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:printing/printing.dart';
 import 'app_card.dart';
 import '../services/app_state.dart';
 import '../services/export_service.dart';
@@ -8,12 +8,13 @@ import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 
-/// Settings card: pick a date range, then email a text export of the
-/// transactions and saved AI analyses in that range to the address set on
-/// the Profile tab. Sent via a `mailto:` handoff to the device's mail
-/// app — Arkad has no backend of its own to send mail from (see
-/// STYLE_GUIDE.md § OpenRouter connection for the same local-only stance
-/// on the OpenRouter key).
+/// Settings card: pick a date range, then share a formatted, tabular PDF of
+/// the transactions and saved AI analyses in that range — via the OS share
+/// sheet, so it can be attached to an email addressed to the address set on
+/// the Profile tab. Arkad has no backend of its own to send mail from (see
+/// STYLE_GUIDE.md § OpenRouter connection for the same local-only stance on
+/// the OpenRouter key), so sharing to Mail is a manual last step rather than
+/// a silent server-side send.
 class ExportDataCard extends StatefulWidget {
   const ExportDataCard({super.key, required this.appState});
 
@@ -25,6 +26,7 @@ class ExportDataCard extends StatefulWidget {
 
 class _ExportDataCardState extends State<ExportDataCard> {
   late DateTimeRange _range;
+  bool _generating = false;
 
   @override
   void initState() {
@@ -44,36 +46,31 @@ class _ExportDataCardState extends State<ExportDataCard> {
     if (picked != null) setState(() => _range = picked);
   }
 
-  Future<void> _emailExport() async {
-    final email = widget.appState.profile.email.trim();
-    if (email.isEmpty) return;
-
-    final body = buildExportEmailBody(
-      range: _range,
-      transactions: widget.appState.transactionsInRange(_range),
-      analyses: widget.appState.savedAnalysesInRange(_range),
-    );
-    final uri = Uri(
-      scheme: 'mailto',
-      path: email,
-      query: Uri(queryParameters: {
-        'subject': 'Arkad export: ${formatMDY(_range.start)} - ${formatMDY(_range.end)}',
-        'body': body,
-      }).query,
-    );
-
-    if (!mounted) return;
+  Future<void> _shareExport() async {
+    setState(() => _generating = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        messenger.showSnackBar(const SnackBar(content: Text('No mail app available to open')));
-      }
+      final (totalIncome, totalExpense) = widget.appState.totalsForDateRange(_range);
+      final bytes = await buildExportPdf(
+        range: _range,
+        transactions: widget.appState.transactionsInRange(_range),
+        analyses: widget.appState.savedAnalysesInRange(_range),
+        totalIncome: totalIncome,
+        totalExpense: totalExpense,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'arkad-export-${_fileDate(_range.start)}-${_fileDate(_range.end)}.pdf',
+      );
     } catch (_) {
-      messenger.showSnackBar(const SnackBar(content: Text('Could not open mail app')));
+      messenger.showSnackBar(const SnackBar(content: Text('Could not generate the export')));
+    } finally {
+      if (mounted) setState(() => _generating = false);
     }
   }
+
+  String _fileDate(DateTime date) =>
+      '${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +85,7 @@ class _ExportDataCardState extends State<ExportDataCard> {
           Text('Export data', style: AppTextStyles.cardHeading()),
           const SizedBox(height: 8),
           Text(
-            'Email your transactions and saved AI analyses for a date range.',
+            'Generate a PDF of your transactions and saved AI analyses for a date range.',
             style: AppTextStyles.metadata(),
           ),
           const SizedBox(height: 16),
@@ -114,20 +111,25 @@ class _ExportDataCardState extends State<ExportDataCard> {
             style: AppTextStyles.metadata(),
           ),
           const SizedBox(height: 16),
-          if (email.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('Add your email on the Profile tab to enable this.', style: AppTextStyles.metadata(color: AppColors.clay)),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('Sends to $email', style: AppTextStyles.metadata()),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              email.isEmpty
+                  ? 'Add your email on the Profile tab so you know where to send it.'
+                  : 'Share the PDF to Mail, addressed to $email.',
+              style: AppTextStyles.metadata(color: email.isEmpty ? AppColors.clay : null),
             ),
+          ),
           ElevatedButton.icon(
-            onPressed: email.isEmpty ? null : _emailExport,
-            icon: const Icon(Icons.email_outlined, size: 18),
-            label: const Text('Email export'),
+            onPressed: _generating ? null : _shareExport,
+            icon: _generating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.paper),
+                  )
+                : const Icon(Icons.picture_as_pdf_outlined, size: 18),
+            label: Text(_generating ? 'Preparing PDF…' : 'Share PDF export'),
           ),
         ],
       ),
