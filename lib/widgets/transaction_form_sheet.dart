@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'buttons.dart';
+import '../models/category.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
@@ -155,17 +156,27 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
             const SizedBox(height: 18),
             Text('Category', style: AppTextStyles.metadata()),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final c in categories)
-                  _CategoryChip(
-                    label: c,
-                    selected: c == _category,
-                    onTap: () => setState(() => _category = c),
-                  ),
-              ],
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.82,
+              ),
+              itemCount: categories.length,
+              itemBuilder: (context, i) {
+                final c = categories[i];
+                final iconKey = categoryIconKeyFor(c, customIcons: widget.appState.categoryIcons);
+                return _CategoryGridTile(
+                  label: c,
+                  iconKey: iconKey,
+                  isIncome: _type == TransactionType.income,
+                  selected: c == _category,
+                  onTap: () => setState(() => _category = c),
+                );
+              },
             ),
             const SizedBox(height: 24),
             ElevatedButton(
@@ -232,13 +243,14 @@ class _TypeToggle extends StatelessWidget {
 
   Widget _segment(BuildContext context, String label, TransactionType value) {
     final selected = type == value;
+    final isIncome = value == TransactionType.income;
     return GestureDetector(
       onTap: () => onChanged(value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? AppColors.darkGreen : Colors.transparent,
+          color: selected ? (isIncome ? AppColors.darkGreen : AppColors.clay) : Colors.transparent,
           borderRadius: BorderRadius.circular(AppRadii.pill),
         ),
         alignment: Alignment.center,
@@ -254,31 +266,54 @@ class _TypeToggle extends StatelessWidget {
   }
 }
 
-class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({required this.label, required this.selected, required this.onTap});
+class _CategoryGridTile extends StatelessWidget {
+  const _CategoryGridTile({
+    required this.label,
+    required this.iconKey,
+    required this.isIncome,
+    required this.selected,
+    required this.onTap,
+  });
+
   final String label;
+  final String iconKey;
+  final bool isIncome;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final color = isIncome ? AppColors.darkGreen : AppColors.clay;
+    final tint = isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14);
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.darkGreen : AppColors.sageTint,
-          borderRadius: BorderRadius.circular(AppRadii.pill),
-        ),
-        child: Text(
-          label,
-          style: AppTextStyles.manrope(
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-            color: selected ? AppColors.paper : AppColors.ink,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 52,
+            height: 52,
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: selected ? color.withValues(alpha: 0.18) : tint,
+              borderRadius: BorderRadius.circular(AppRadii.iconTile),
+              border: selected ? Border.all(color: color, width: 2) : null,
+            ),
+            child: Image.asset(categoryIconAsset(iconKey, isIncome: isIncome)),
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.manrope(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: selected ? color : AppColors.ink60,
+            ),
+          ),
+        ],
       ),
     );
   }
