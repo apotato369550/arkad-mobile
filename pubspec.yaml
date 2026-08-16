@@ -113,7 +113,8 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
+  remove_alpha_ios: true
   image_path: "assets/icon/arkad-icon.png"
   adaptive_icon_background: "#244F3A"
   adaptive_icon_foreground: "assets/icon/arkad-icon.png"
