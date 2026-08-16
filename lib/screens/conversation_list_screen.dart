@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/category.dart';
 import '../models/conversation.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
@@ -93,6 +94,12 @@ class ConversationListScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Image.asset(
+                      categoryIconAsset('chat', isIncome: true),
+                      width: 48,
+                      height: 48,
+                    ),
+                    const SizedBox(height: 12),
                     Text(
                       'No conversations yet',
                       style: AppTextStyles.cardHeading(),

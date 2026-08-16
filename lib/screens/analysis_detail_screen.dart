@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/analysis_period.dart';
+import '../models/category.dart';
 import '../models/saved_analysis.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
@@ -95,7 +96,7 @@ class _AnalysisBody extends StatelessWidget {
                 child: StatCard(
                   label: 'Income',
                   amount: analysis.totalIncome,
-                  icon: Icons.trending_up_outlined,
+                  iconAsset: categoryIconAsset('income', isIncome: true),
                   isIncome: true,
                   onTap: () => showStatDetailSheet(
                     context,
@@ -115,7 +116,7 @@ class _AnalysisBody extends StatelessWidget {
                 child: StatCard(
                   label: 'Expenses',
                   amount: analysis.totalExpense,
-                  icon: Icons.trending_down_outlined,
+                  iconAsset: categoryIconAsset('bills_up', isIncome: false),
                   isIncome: false,
                   onTap: () => showStatDetailSheet(
                     context,
@@ -161,12 +162,14 @@ class _AnalysisBody extends StatelessWidget {
         CategoryPieChart(
           title: 'Expenses by category',
           data: analysis.expenseByCategory,
+          isIncome: false,
           emptyLabel: 'No expenses in this period',
         ),
         const SizedBox(height: 28),
         CategoryPieChart(
           title: 'Income by category',
           data: analysis.incomeByCategory,
+          isIncome: true,
           emptyLabel: 'No income in this period',
         ),
         const SizedBox(height: 28),

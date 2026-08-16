@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/category.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
@@ -91,6 +92,7 @@ Future<void> showStatDetailSheet(
               CategoryPieChart(
                 title: '$title by category',
                 data: breakdown,
+                isIncome: isIncome,
                 emptyLabel: breakdownEmptyLabel,
               ),
               const SizedBox(height: 20),
@@ -219,10 +221,10 @@ class DeltaStatTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            isUp ? Icons.trending_up_outlined : Icons.trending_down_outlined,
-            size: 40,
-            color: isUp ? AppColors.clay : AppColors.darkGreen,
+          Image.asset(
+            categoryIconAsset('trend', isIncome: !isUp),
+            width: 40,
+            height: 40,
           ),
           const SizedBox(height: 16),
           Text('vs. prior', style: AppTextStyles.metadata()),

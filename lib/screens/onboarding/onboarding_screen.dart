@@ -185,6 +185,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 ),
               ),
               const SizedBox(height: 64),
+              if (_step == 0) ...[
+                Text('MEET ARKAD', style: AppTextStyles.eyebrow(color: AppColors.darkGreen)),
+                const SizedBox(height: 12),
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
+                  padding: const EdgeInsets.all(6),
+                  child: ClipOval(
+                    child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               Text(
                 _titles[_step],
                 style: AppTextStyles.fraunces(fontSize: 28, fontWeight: FontWeight.w600, height: 1.05),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/category.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
@@ -32,25 +33,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.sageTint,
-              borderRadius: BorderRadius.circular(AppRadii.pill),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
+              padding: const EdgeInsets.all(6),
+              child: ClipOval(
+                child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+              ),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: DropdownButton<StatsRange>(
-              underline: const SizedBox(),
-              icon: const Icon(Icons.expand_more, size: 18),
-              style: AppTextStyles.manrope(fontWeight: FontWeight.w600),
-              value: _range,
-              items: StatsRange.values
-                  .map((r) => DropdownMenuItem(value: r, child: Text(r.caption)))
-                  .toList(),
-              onChanged: (r) => setState(() => _range = r!),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _greeting(widget.appState.profile.displayName),
+                      style: AppTextStyles.fraunces(fontSize: 20, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text("Here's how things are looking.", style: AppTextStyles.body(color: AppColors.ink60)),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: AppColors.sageTint,
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: DropdownButton<StatsRange>(
+                underline: const SizedBox(),
+                icon: const Icon(Icons.expand_more, size: 18),
+                style: AppTextStyles.manrope(fontWeight: FontWeight.w600),
+                value: _range,
+                items: StatsRange.values
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r.caption)))
+                    .toList(),
+                onChanged: (r) => setState(() => _range = r!),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         BalanceBlob(balance: income - expense, savingsRate: savingsRate.clamp(-100, 100)),
@@ -61,7 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: StatCard(
                 label: 'Income',
                 amount: income,
-                icon: Icons.arrow_downward,
+                iconAsset: categoryIconAsset('income', isIncome: true),
                 isIncome: true,
               ),
             ),
@@ -70,7 +101,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: StatCard(
                 label: 'Expenses',
                 amount: expense,
-                icon: Icons.arrow_upward,
+                iconAsset: categoryIconAsset('bills_up', isIncome: false),
                 isIncome: false,
               ),
             ),
@@ -116,4 +147,11 @@ class _RecentActivity extends StatelessWidget {
       ],
     );
   }
+}
+
+String _greeting(String displayName) {
+  final trimmed = displayName.trim();
+  if (trimmed.isEmpty) return 'Welcome back';
+  final firstName = trimmed.split(RegExp(r'\s+')).first;
+  return 'Welcome back, $firstName';
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/api_config.dart';
+import '../models/category.dart';
 import '../services/app_state.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
@@ -104,7 +105,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('OpenRouter connection', style: AppTextStyles.cardHeading()),
+              Row(
+                children: [
+                  IconTile(imageAsset: categoryIconAsset('security', isIncome: true), size: 36),
+                  const SizedBox(width: 12),
+                  Text('OpenRouter connection', style: AppTextStyles.cardHeading()),
+                ],
+              ),
               const SizedBox(height: 8),
               Text(
                 'Your key stays on this device and is sent directly to OpenRouter — never to Arkad.',

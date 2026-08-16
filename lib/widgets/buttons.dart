@@ -42,19 +42,30 @@ class ClayButton extends StatelessWidget {
 class IconTile extends StatelessWidget {
   const IconTile({
     super.key,
-    required this.icon,
+    this.icon,
+    this.imageAsset,
     this.background = AppColors.sageTint,
     this.foreground = AppColors.darkGreen,
     this.size = 44,
-  });
+  }) : assert(icon != null || imageAsset != null, 'IconTile requires either icon or imageAsset');
 
-  final IconData icon;
+  final IconData? icon;
+  final String? imageAsset;
   final Color background;
   final Color foreground;
   final double size;
 
   @override
   Widget build(BuildContext context) {
+    if (imageAsset != null) {
+      return Container(
+        width: size,
+        height: size,
+        padding: EdgeInsets.all(size * 0.20),
+        decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(AppRadii.iconTile)),
+        child: Image.asset(imageAsset!, fit: BoxFit.contain),
+      );
+    }
     return Container(
       width: size,
       height: size,

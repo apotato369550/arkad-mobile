@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/category.dart';
 import '../models/transaction.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
@@ -80,7 +81,18 @@ class _DayGroupedTransactionsState extends State<DayGroupedTransactions> {
     if (widget.transactions.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Text(widget.emptyLabel, style: AppTextStyles.body()),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Image.asset(
+              categoryIconAsset('transactions', isIncome: true),
+              width: 36,
+              height: 36,
+            ),
+            const SizedBox(height: 10),
+            Text(widget.emptyLabel, style: AppTextStyles.body()),
+          ],
+        ),
       );
     }
 

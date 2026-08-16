@@ -17,6 +17,7 @@ class CategoryPieChart extends StatelessWidget {
     super.key,
     required this.title,
     required this.data,
+    required this.isIncome,
     this.emptyLabel = 'No activity in this range',
   });
 
@@ -25,6 +26,10 @@ class CategoryPieChart extends StatelessWidget {
 
   /// Map of category name to total amount.
   final Map<String, double> data;
+
+  /// Whether this chart is showing income (green icon tint) or expense (red
+  /// icon tint) categories.
+  final bool isIncome;
 
   /// Shown in place of the chart when [data] is empty.
   final String emptyLabel;
@@ -51,6 +56,14 @@ class CategoryPieChart extends StatelessWidget {
           children: [
             Text(title, style: AppTextStyles.cardHeading()),
             const SizedBox(height: 40),
+            Center(
+              child: Image.asset(
+                categoryIconAsset('analysis', isIncome: isIncome),
+                width: 40,
+                height: 40,
+              ),
+            ),
+            const SizedBox(height: 12),
             Center(
               child: Text(
                 emptyLabel,
@@ -112,6 +125,7 @@ class CategoryPieChart extends StatelessWidget {
                   amount: processedData.values.elementAt(i),
                   total: total,
                   color: _paletteColors[i % _paletteColors.length],
+                  isIncome: isIncome,
                   hasOther: hasOther && i == processedData.length - 1,
                 ),
             ],
@@ -150,6 +164,7 @@ class _LegendItem extends StatelessWidget {
     required this.amount,
     required this.total,
     required this.color,
+    required this.isIncome,
     this.hasOther = false,
   });
 
@@ -157,6 +172,7 @@ class _LegendItem extends StatelessWidget {
   final double amount;
   final double total;
   final Color color;
+  final bool isIncome;
   final bool hasOther;
 
   @override
@@ -172,10 +188,10 @@ class _LegendItem extends StatelessWidget {
           if (!hasOther)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: Icon(
-                iconForCategory(category),
-                size: 16,
-                color: AppColors.ink60,
+              child: Image.asset(
+                categoryIconAsset(categoryIconKeyFor(category), isIncome: isIncome),
+                width: 16,
+                height: 16,
               ),
             )
           else

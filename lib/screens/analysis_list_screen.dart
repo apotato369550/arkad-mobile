@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/category.dart';
 import '../models/saved_analysis.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
@@ -70,6 +71,12 @@ class AnalysisListScreen extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Image.asset(
+                          categoryIconAsset('analysis', isIncome: true),
+                          width: 48,
+                          height: 48,
+                        ),
+                        const SizedBox(height: 12),
                         Text(
                           'No analyses yet',
                           style: AppTextStyles.cardHeading(),

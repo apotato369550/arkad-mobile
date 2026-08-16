@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/analysis_period.dart';
+import '../models/category.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
@@ -74,7 +75,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 child: StatCard(
                   label: 'Income',
                   amount: totalIncome,
-                  icon: Icons.trending_up_outlined,
+                  iconAsset: categoryIconAsset('income', isIncome: true),
                   isIncome: true,
                   onTap: () => showStatDetailSheet(
                     context,
@@ -94,7 +95,7 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
                 child: StatCard(
                   label: 'Expenses',
                   amount: totalExpense,
-                  icon: Icons.trending_down_outlined,
+                  iconAsset: categoryIconAsset('bills_up', isIncome: false),
                   isIncome: false,
                   onTap: () => showStatDetailSheet(
                     context,

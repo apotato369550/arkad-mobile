@@ -11,14 +11,16 @@ class StatCard extends StatelessWidget {
     super.key,
     required this.label,
     required this.amount,
-    required this.icon,
+    this.icon,
+    this.iconAsset,
     required this.isIncome,
     this.onTap,
-  });
+  }) : assert(icon != null || iconAsset != null, 'StatCard requires either icon or iconAsset');
 
   final String label;
   final double amount;
-  final IconData icon;
+  final IconData? icon;
+  final String? iconAsset;
   final bool isIncome;
 
   /// When non-null, the whole card becomes tappable (e.g. to open a detail
@@ -35,7 +37,7 @@ class StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconTile(icon: icon, background: tint, foreground: fg, size: 40),
+          IconTile(icon: icon, imageAsset: iconAsset, background: tint, foreground: fg, size: 40),
           const SizedBox(height: 16),
           Text(label, style: AppTextStyles.metadata()),
           const SizedBox(height: 6),

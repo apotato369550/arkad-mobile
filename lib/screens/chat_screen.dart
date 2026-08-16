@@ -113,9 +113,11 @@ class _ChatScreenState extends State<ChatScreen> {
             Container(
               width: 32,
               height: 32,
-              decoration: const BoxDecoration(color: AppColors.darkGreen, shape: BoxShape.circle),
+              decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: const Icon(Icons.auto_awesome, color: AppColors.pastelYellow, size: 16),
+              child: ClipOval(
+                child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+              ),
             ),
             const SizedBox(width: 12),
             Column(
@@ -263,6 +265,16 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: ClipOval(
+                child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(height: 16),
             Text('Talk to Arkad', style: AppTextStyles.cardHeading()),
             const SizedBox(height: 8),
             Text(

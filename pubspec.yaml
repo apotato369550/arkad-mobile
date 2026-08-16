@@ -76,6 +76,7 @@ flutter:
     - assets/icon/arkad-icon.png
     - assets/extracted/tinted/green/
     - assets/extracted/tinted/red/
+    - assets/extracted/arkad_face_transparent.png
     - assets/fonts/NotoSans-Variable.ttf
     - .env
 

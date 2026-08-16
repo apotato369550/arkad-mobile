@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'app_card.dart';
+import 'buttons.dart';
+import '../models/category.dart';
 import '../services/app_state.dart';
 import '../services/export_service.dart';
 import '../services/formatters.dart';
@@ -82,7 +84,13 @@ class _ExportDataCardState extends State<ExportDataCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Export data', style: AppTextStyles.cardHeading()),
+          Row(
+            children: [
+              IconTile(imageAsset: categoryIconAsset('export', isIncome: true), size: 36),
+              const SizedBox(width: 12),
+              Text('Export data', style: AppTextStyles.cardHeading()),
+            ],
+          ),
           const SizedBox(height: 8),
           Text(
             'Generate a PDF of your transactions and saved AI analyses for a date range.',
