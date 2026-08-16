@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../models/backup_settings.dart';
 import '../../models/countries.dart';
 import '../../models/occupation_fields.dart';
 import '../../services/app_state.dart';
@@ -34,6 +36,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late String _currencyCode;
   late String _occupationField;
   late String _goalType;
+  late bool _backupEnabled;
+  late BackupFrequency _backupFrequency;
 
   static const _titles = [
     'What should we call you?',
@@ -44,6 +48,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'Tell us more about your goal',
     'Do you have a savings target?',
     'What\'s your typical monthly income?',
+    'Back up your data?',
   ];
 
   static const _requiredSteps = {0, 2, 4};
@@ -63,6 +68,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _currencyCode = profile.currencyCode;
     _occupationField = profile.occupationField;
     _goalType = profile.goalType;
+    final backupSettings = widget.appState.backupSettings;
+    _backupEnabled = backupSettings.enabled;
+    _backupFrequency = backupSettings.frequency;
   }
 
   @override
@@ -115,6 +123,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           _savingsGoalController.clear();
         case 7:
           _incomeController.clear();
+        case 8:
+          _backupEnabled = false;
       }
     }
     if (_isLast) {
@@ -150,6 +160,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         onboardingComplete: true,
       ),
     );
+    widget.appState.updateBackupSettings(
+      widget.appState.backupSettings.copyWith(enabled: _backupEnabled, frequency: _backupFrequency),
+    );
+    if (_backupEnabled) {
+      // Fire-and-forget: this is the anonymous sign-in + first upload, not
+      // the email link (that's a Settings-screen follow-up) — never block
+      // entry into the app on network availability.
+      unawaited(widget.appState.maybeRunScheduledBackup());
+    }
   }
 
   @override
@@ -328,8 +347,115 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             prefixText: '${currencySymbolFor(_currencyCode)} ',
           ),
         );
+      case 8:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Automatically back up your data to the cloud so it survives a lost or reset device. '
+              'You can turn this on or off anytime in Settings.',
+              style: AppTextStyles.metadata(),
+            ),
+            const SizedBox(height: 20),
+            _BackupToggleRow(
+              enabled: _backupEnabled,
+              onChanged: (v) => setState(() => _backupEnabled = v),
+            ),
+            if (_backupEnabled) ...[
+              const SizedBox(height: 24),
+              Text('How often?', style: AppTextStyles.metadata()),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final frequency in BackupFrequency.values)
+                    _FrequencyChip(
+                      label: frequency.label,
+                      selected: frequency == _backupFrequency,
+                      onTap: () => setState(() => _backupFrequency = frequency),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        );
       default:
         return const SizedBox.shrink();
     }
+  }
+}
+
+/// Enable/disable row for cloud backup — a switch rather than the pill
+/// buttons used elsewhere in onboarding, since this is a single on/off
+/// setting rather than a pick-one-of-several choice.
+class _BackupToggleRow extends StatelessWidget {
+  const _BackupToggleRow({required this.enabled, required this.onChanged});
+
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!enabled),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: enabled ? AppColors.sageTint : AppColors.cream,
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              enabled ? Icons.cloud_done_outlined : Icons.cloud_outlined,
+              size: 20,
+              color: enabled ? AppColors.darkGreen : AppColors.ink60,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                enabled ? 'Cloud backup on' : 'Cloud backup off',
+                style: AppTextStyles.manrope(fontWeight: FontWeight.w700),
+              ),
+            ),
+            Switch(value: enabled, onChanged: onChanged, activeThumbColor: AppColors.darkGreen),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small pill chip for [BackupFrequency] selection — same visual language as
+/// [GoalTypeSelector]'s buttons but compact/horizontal since there are only
+/// three short options here.
+class _FrequencyChip extends StatelessWidget {
+  const _FrequencyChip({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.darkGreen : AppColors.sageTint,
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyles.manrope(
+            fontWeight: FontWeight.w700,
+            color: selected ? AppColors.paper : AppColors.ink,
+          ),
+        ),
+      ),
+    );
   }
 }

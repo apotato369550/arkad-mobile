@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
 import '../models/analysis_period.dart';
 import '../models/api_config.dart';
+import '../models/backup_settings.dart';
 import '../models/category.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
@@ -10,6 +11,7 @@ import '../models/profile.dart';
 import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
 import 'app_config.dart';
+import 'cloud_backup_service.dart';
 import 'formatters.dart';
 import 'openrouter_service.dart';
 import 'persistence_service.dart';
@@ -80,12 +82,14 @@ class AppState extends ChangeNotifier {
         conversations = _persistence.loadConversations(),
         activeConversationId = _determineActiveConversationId(_persistence.loadConversations()),
         savedAnalyses = _persistence.loadSavedAnalyses(),
+        backupSettings = _persistence.loadBackupSettings(),
         _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
     setAppCurrency(profile.currencyCode);
   }
 
   final PersistenceService _persistence;
   final OpenRouterService _openRouter = OpenRouterService();
+  final CloudBackupService cloudBackup = CloudBackupService();
 
   List<LedgerTransaction> transactions;
   Profile profile;
@@ -97,6 +101,7 @@ class AppState extends ChangeNotifier {
   List<Conversation> conversations;
   String? activeConversationId;
   List<SavedAnalysis> savedAnalyses;
+  BackupSettings backupSettings;
   Map<AnalysisPeriod, DateTime> _analysisRequestLog;
 
   /// The OpenRouter key all calls should use: a debug-mode `.env` key takes
@@ -482,6 +487,52 @@ class AppState extends ChangeNotifier {
   void updateApiConfig(ApiConfig config) {
     apiConfig = config;
     _persistence.saveApiConfig(config);
+    notifyListeners();
+  }
+
+  void updateBackupSettings(BackupSettings settings) {
+    backupSettings = settings;
+    _persistence.saveBackupSettings(settings);
+    notifyListeners();
+  }
+
+  /// Uploads a fresh snapshot right now, regardless of [BackupSettings.frequency],
+  /// and records the timestamp. Rethrows [CloudBackupException] so a caller
+  /// showing a "Back up now" button can surface the failure — unlike
+  /// [maybeRunScheduledBackup], which is a background best-effort check.
+  Future<void> backUpNow() async {
+    await cloudBackup.backupNow(_persistence);
+    updateBackupSettings(backupSettings.copyWith(lastBackupAt: DateTime.now()));
+  }
+
+  /// Opportunistic backup check — call on app launch/resume. Silently no-ops
+  /// when backup is disabled, not yet due per [BackupSettings.frequency], or
+  /// the upload fails (network, not configured, etc.); there's no background
+  /// task infrastructure here, so a missed run just gets retried next launch.
+  Future<void> maybeRunScheduledBackup() async {
+    if (!backupSettings.enabled || !cloudBackup.isConfigured) return;
+    final last = backupSettings.lastBackupAt;
+    final due = last == null || DateTime.now().difference(last) >= backupSettings.frequency.interval;
+    if (!due) return;
+    try {
+      await backUpNow();
+    } catch (_) {}
+  }
+
+  /// Fetches this account's cloud snapshot and overwrites local state with
+  /// it — the "restore on a new/reset device" half of cloud backup. Rethrows
+  /// [CloudBackupException] so the caller can show why it failed.
+  Future<void> restoreFromCloudBackup() async {
+    await cloudBackup.restore(_persistence);
+    transactions = _persistence.loadTransactions();
+    profile = _persistence.loadProfile();
+    incomeCategories = _persistence.loadIncomeCategories();
+    expenseCategories = _persistence.loadExpenseCategories();
+    categoryIcons = _persistence.loadCategoryIcons();
+    conversations = _persistence.loadConversations();
+    activeConversationId = _determineActiveConversationId(conversations);
+    savedAnalyses = _persistence.loadSavedAnalyses();
+    setAppCurrency(profile.currencyCode);
     notifyListeners();
   }
 
@@ -924,6 +975,7 @@ class AppState extends ChangeNotifier {
     conversations = [];
     activeConversationId = null;
     savedAnalyses = [];
+    backupSettings = BackupSettings();
     _analysisRequestLog = {};
     notifyListeners();
   }

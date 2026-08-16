@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/analysis_period.dart';
 import '../models/api_config.dart';
+import '../models/backup_settings.dart';
 import '../models/category.dart';
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
@@ -33,6 +34,7 @@ class PersistenceService {
   static const _chatHistoryKey = 'arkad:chat-history:v1';
   static const _savedAnalysesKey = 'arkad:saved-analyses:v1';
   static const _analysisRequestLogKey = 'arkad:analysis-request-log:v1';
+  static const _backupSettingsKey = 'arkad:backup-settings:v1';
   static const _secureApiKeyKey = 'arkad_api_key';
   // Bounds every secure-storage call: Keystore/libsecret access can in
   // principle stall (platform prompts, a broken keyring service), and that
@@ -259,6 +261,96 @@ class PersistenceService {
     );
   }
 
+  BackupSettings loadBackupSettings() {
+    final raw = _prefs.getString(_backupSettingsKey);
+    if (raw == null) return BackupSettings();
+    try {
+      return BackupSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return BackupSettings();
+    }
+  }
+
+  Future<void> saveBackupSettings(BackupSettings settings) {
+    return _prefs.setString(_backupSettingsKey, jsonEncode(settings.toJson()));
+  }
+
+  /// Snapshot version, bumped when [buildBackupSnapshot]'s shape changes so
+  /// [restoreBackupSnapshot] can reject or migrate snapshots it doesn't
+  /// understand instead of guessing.
+  static const _backupSnapshotVersion = 1;
+
+  /// Everything a cloud backup needs to fully reconstruct local state on a
+  /// new device. Deliberately excludes the OpenRouter API key (secret,
+  /// per-device by design — see [saveApiConfig]) and the analysis request
+  /// log (a rate-limit cooldown, not user data).
+  Map<String, dynamic> buildBackupSnapshot() {
+    return {
+      'version': _backupSnapshotVersion,
+      'transactions': loadTransactions().map((t) => t.toJson()).toList(),
+      'profile': loadProfile().toJson(),
+      'incomeCategories': loadIncomeCategories(),
+      'expenseCategories': loadExpenseCategories(),
+      'categoryIcons': loadCategoryIcons(),
+      'conversations': loadConversations().map((c) => c.toJson()).toList(),
+      'savedAnalyses': loadSavedAnalyses().map((a) => a.toJson()).toList(),
+    };
+  }
+
+  /// Overwrites local state with a snapshot previously produced by
+  /// [buildBackupSnapshot] (e.g. fetched from Supabase on a new device).
+  /// Tolerant of missing/malformed individual fields, matching the defensive
+  /// style of the rest of this class — a partially-decodable snapshot
+  /// restores what it can rather than failing closed.
+  Future<void> restoreBackupSnapshot(Map<String, dynamic> snapshot) async {
+    try {
+      final rawTransactions = snapshot['transactions'] as List<dynamic>?;
+      if (rawTransactions != null) {
+        await saveTransactions(
+          rawTransactions.map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>)).toList(),
+        );
+      }
+    } catch (_) {}
+
+    try {
+      final rawProfile = snapshot['profile'] as Map<String, dynamic>?;
+      if (rawProfile != null) await saveProfile(Profile.fromJson(rawProfile));
+    } catch (_) {}
+
+    try {
+      final rawIncome = snapshot['incomeCategories'] as List<dynamic>?;
+      if (rawIncome != null) await saveIncomeCategories(rawIncome.cast<String>());
+    } catch (_) {}
+
+    try {
+      final rawExpense = snapshot['expenseCategories'] as List<dynamic>?;
+      if (rawExpense != null) await saveExpenseCategories(rawExpense.cast<String>());
+    } catch (_) {}
+
+    try {
+      final rawIcons = snapshot['categoryIcons'] as Map<String, dynamic>?;
+      if (rawIcons != null) await saveCategoryIcons(rawIcons.map((k, v) => MapEntry(k, v as String)));
+    } catch (_) {}
+
+    try {
+      final rawConversations = snapshot['conversations'] as List<dynamic>?;
+      if (rawConversations != null) {
+        await saveConversations(
+          rawConversations.map((e) => Conversation.fromJson(e as Map<String, dynamic>)).toList(),
+        );
+      }
+    } catch (_) {}
+
+    try {
+      final rawAnalyses = snapshot['savedAnalyses'] as List<dynamic>?;
+      if (rawAnalyses != null) {
+        await saveSavedAnalyses(
+          rawAnalyses.map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>)).toList(),
+        );
+      }
+    } catch (_) {}
+  }
+
   Future<void> clearAll() async {
     _cachedApiKey = null;
     try {
@@ -275,6 +367,7 @@ class PersistenceService {
       _prefs.remove(_chatHistoryKey),
       _prefs.remove(_savedAnalysesKey),
       _prefs.remove(_analysisRequestLogKey),
+      _prefs.remove(_backupSettingsKey),
     ]);
   }
 

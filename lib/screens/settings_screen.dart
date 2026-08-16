@@ -8,6 +8,7 @@ import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
 import '../widgets/buttons.dart';
+import '../widgets/cloud_backup_card.dart';
 import '../widgets/export_data_card.dart';
 
 const String _customModelSentinel = 'custom';
@@ -198,31 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         ExportDataCard(appState: widget.appState),
         const SizedBox(height: 16),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text('Cloud backup', style: AppTextStyles.cardHeading()),
-                  const SizedBox(width: 8),
-                  const _WipBadge(),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Automatically back up your data so it survives a lost or reset device. Not available yet.',
-                style: AppTextStyles.metadata(),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: null,
-                icon: const Icon(Icons.cloud_outlined, size: 18),
-                label: const Text('Enable cloud backup'),
-              ),
-            ],
-          ),
-        ),
+        CloudBackupCard(appState: widget.appState),
         const SizedBox(height: 16),
         AppCard(
           color: AppColors.clay.withValues(alpha: 0.08),
@@ -238,24 +215,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Small "work in progress" pill for features that are visible but not yet
-/// functional — currently just cloud backup.
-class _WipBadge extends StatelessWidget {
-  const _WipBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: AppColors.pastelYellow, borderRadius: BorderRadius.circular(AppRadii.pill)),
-      child: Text(
-        'WIP',
-        style: AppTextStyles.manrope(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.ink, letterSpacing: 0.5),
-      ),
     );
   }
 }

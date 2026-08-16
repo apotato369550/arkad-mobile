@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/app_shell.dart';
 import 'screens/onboarding/onboarding_screen.dart';
+import 'services/app_config.dart';
 import 'services/app_state.dart';
+import 'services/cloud_backup_service.dart';
 import 'services/persistence_service.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
@@ -14,6 +18,15 @@ void main() async {
   try {
     await dotenv.load(fileName: '.env');
   } catch (_) {}
+  // Cloud backup is opt-in infrastructure: a build with no Supabase project
+  // configured (fresh checkout, CI, etc.) just runs with the feature
+  // unavailable rather than failing to start.
+  if (AppConfig.isCloudBackupConfigured) {
+    try {
+      await Supabase.initialize(url: AppConfig.supabaseUrl!, publishableKey: AppConfig.supabaseAnonKey!);
+      CloudBackupService.configured = true;
+    } catch (_) {}
+  }
   runApp(const ArkadApp());
 }
 
@@ -51,7 +64,13 @@ class _AppRootState extends State<_AppRoot> {
 
   Future<void> _load() async {
     final persistence = await PersistenceService.create();
-    setState(() => _appState = AppState(persistence));
+    final appState = AppState(persistence);
+    setState(() => _appState = appState);
+    // Onboarding triggers its own first backup on completion; this covers
+    // every later launch for a user who already finished onboarding.
+    if (appState.profile.onboardingComplete) {
+      unawaited(appState.maybeRunScheduledBackup());
+    }
   }
 
   @override
