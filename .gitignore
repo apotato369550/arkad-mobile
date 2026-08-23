@@ -47,3 +47,5 @@ app.*.map.json
 # Secrets
 .env
 debug/
+android/key.properties
+android/keystore/
