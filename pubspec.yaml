@@ -116,9 +116,9 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/icon/arkad-icon.png"
+  image_path: "assets/icon/arkad-icon-square.png"
   adaptive_icon_background: "#244F3A"
-  adaptive_icon_foreground: "assets/icon/arkad-icon.png"
+  adaptive_icon_foreground: "assets/icon/arkad-icon-foreground.png"
 
 flutter_native_splash:
   color: "#F4F0E6"
