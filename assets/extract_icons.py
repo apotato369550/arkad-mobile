@@ -2,10 +2,10 @@
 """
 Deterministic extraction of individual icons from assets/raw/*.
 
-- icons_raw.jpeg: a 4-row grid of icon+label cells. Detects row bands,
-  splits each row into an icon sub-band and a label sub-band via
-  whitespace-gap projection, detects icon columns within the icon
-  sub-band, and crops each icon (label text excluded).
+- icons_raw.jpeg, icons_raw_2.jpeg: each a grid of icon+label cells.
+  Detects row bands, splits each row into an icon sub-band and a label
+  sub-band via whitespace-gap projection, detects icon columns within
+  the icon sub-band, and crops each icon (label text excluded).
 - raw_arkad_face_icon.jpeg: a single icon on a white background. Crops
   tightly to the non-white content bounding box.
 
@@ -37,6 +37,18 @@ ROW_LABELS = [
      "Add", "Filter", "Sort", "Security"],
     ["Cash", "Balance", "Receipts", "Rewards", "Advisor",
      "Categories", "Transactions", "Trend", "Analysis"],
+]
+
+# Text labels for each of the 5 columns in each of the 4 rows of
+# icons_raw_2.jpeg, transcribed left-to-right, top-to-bottom from the
+# image header text. "Subscriptions Alt" is renamed from the sheet's
+# actual "Subscriptions" label to avoid colliding with the icon_subscriptions
+# key already extracted from icons_raw.jpeg.
+ROW_LABELS_2 = [
+    ["Bills", "Business", "Cable", "Car", "Educational"],
+    ["Electricity", "Events", "Gas", "Gym", "Shopping"],
+    ["Home", "Hobbies", "Internet", "Medical", "Self-care"],
+    ["Tech gear", "Supplies", "Subscriptions Alt", "Tolls", "Water"],
 ]
 
 
@@ -83,8 +95,18 @@ def find_bands(proj: np.ndarray, gap_thresh: int, min_gap_run: int, min_size: in
     return bands
 
 
-def extract_icon_grid():
-    src = RAW_DIR / "icons_raw.jpeg"
+def extract_icon_grid(
+    src_filename: str,
+    row_labels: list[list[str]],
+    row_gap: int = 15,
+    label_gap: int = 8,
+):
+    """row_gap and label_gap tolerate up to that many consecutive
+    low-ink rows/columns without splitting a band — they must bridge
+    the icon-to-label gap and multi-word label gaps (e.g. "Tech gear")
+    without merging across separate rows/labels. The right values scale
+    with the source image's resolution, so differ per sheet."""
+    src = RAW_DIR / src_filename
     im = Image.open(src).convert("RGB")
     arr = np.array(im)
     mask, _bg = ink_mask(arr)
@@ -92,8 +114,8 @@ def extract_icon_grid():
     row_sum = mask.sum(axis=1)
     # Whole-row bands (icon+label together), skipping the title/subtitle
     # header text at the top of the image.
-    all_row_bands = find_bands(row_sum, gap_thresh=2, min_gap_run=15, min_size=5)
-    grid_row_bands = all_row_bands[-len(ROW_LABELS):]
+    all_row_bands = find_bands(row_sum, gap_thresh=2, min_gap_run=row_gap, min_size=5)
+    grid_row_bands = all_row_bands[-len(row_labels):]
 
     count = 0
     for row_idx, (rs, re) in enumerate(grid_row_bands):
@@ -115,9 +137,9 @@ def extract_icon_grid():
         if label_band is not None:
             lrs, lre = label_band
             label_col_sum = mask[lrs:lre + 1, :].sum(axis=0)
-            label_cols = find_bands(label_col_sum, gap_thresh=1, min_gap_run=8, min_size=3)
+            label_cols = find_bands(label_col_sum, gap_thresh=1, min_gap_run=label_gap, min_size=3)
 
-        labels = ROW_LABELS[row_idx]
+        labels = row_labels[row_idx]
         names = assign_names(icon_cols, label_cols, labels, row_idx)
 
         pad = 4
@@ -131,7 +153,7 @@ def extract_icon_grid():
             out_path = OUT_DIR / f"icon_{name}.png"
             crop.save(out_path)
             count += 1
-    print(f"icons_raw.jpeg -> {count} icons extracted")
+    print(f"{src_filename} -> {count} icons extracted")
 
 
 def assign_names(icon_cols, label_cols, labels, row_idx):
@@ -203,7 +225,8 @@ def extract_face_icon():
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    extract_icon_grid()
+    extract_icon_grid("icons_raw.jpeg", ROW_LABELS)
+    extract_icon_grid("icons_raw_2.jpeg", ROW_LABELS_2, row_gap=40, label_gap=15)
     extract_face_icon()
 
 
