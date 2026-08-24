@@ -13,6 +13,7 @@ class DayGroupedTransactions extends StatefulWidget {
   const DayGroupedTransactions({
     super.key,
     required this.transactions,
+    required this.categoryIcons,
     required this.initialDayCount,
     this.dayIncrement,
     required this.onTransactionTap,
@@ -21,6 +22,7 @@ class DayGroupedTransactions extends StatefulWidget {
   });
 
   final List<LedgerTransaction> transactions;
+  final Map<String, String> categoryIcons;
   final int initialDayCount;
   final int? dayIncrement;
   final void Function(LedgerTransaction) onTransactionTap;
@@ -115,6 +117,7 @@ class _DayGroupedTransactionsState extends State<DayGroupedTransactions> {
               ...group.transactions.map(
                 (transaction) => TransactionRow(
                   transaction: transaction,
+                  categoryIcons: widget.categoryIcons,
                   highlighted: transaction.id == widget.highlightId,
                   onTap: () => widget.onTransactionTap(transaction),
                 ),

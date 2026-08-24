@@ -57,7 +57,7 @@ class TransactionViewSheet extends StatelessWidget {
           Row(
             children: [
               IconTile(
-                imageAsset: categoryIconAsset(categoryIconKeyFor(transaction.category), isIncome: isIncome),
+                imageAsset: categoryIconAsset(categoryIconKeyFor(transaction.category, customIcons: appState.categoryIcons), isIncome: isIncome),
                 background: isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14),
                 foreground: amountColor,
                 size: 52,

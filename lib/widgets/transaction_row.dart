@@ -8,9 +8,10 @@ import '../services/formatters.dart';
 
 /// See STYLE_GUIDE.md § Dashboard components — transaction row.
 class TransactionRow extends StatelessWidget {
-  const TransactionRow({super.key, required this.transaction, this.onTap, this.highlighted = false});
+  const TransactionRow({super.key, required this.transaction, required this.categoryIcons, this.onTap, this.highlighted = false});
 
   final LedgerTransaction transaction;
+  final Map<String, String> categoryIcons;
   final VoidCallback? onTap;
   final bool highlighted;
 
@@ -28,7 +29,7 @@ class TransactionRow extends StatelessWidget {
           child: Row(
             children: [
               IconTile(
-                imageAsset: categoryIconAsset(categoryIconKeyFor(transaction.category), isIncome: isIncome),
+                imageAsset: categoryIconAsset(categoryIconKeyFor(transaction.category, customIcons: categoryIcons), isIncome: isIncome),
                 background: isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14),
                 foreground: isIncome ? AppColors.darkGreen : AppColors.clay,
               ),

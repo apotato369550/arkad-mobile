@@ -50,7 +50,7 @@ class AnalysisDetailScreen extends StatelessWidget {
                     ),
                   ),
                 )
-              : _AnalysisBody(analysis: analysis, labelForBucket: _labelForBucketCount),
+              : _AnalysisBody(analysis: analysis, appState: appState, labelForBucket: _labelForBucketCount),
         );
       },
     );
@@ -58,9 +58,10 @@ class AnalysisDetailScreen extends StatelessWidget {
 }
 
 class _AnalysisBody extends StatelessWidget {
-  const _AnalysisBody({required this.analysis, required this.labelForBucket});
+  const _AnalysisBody({required this.analysis, required this.appState, required this.labelForBucket});
 
   final SavedAnalysis analysis;
+  final AppState appState;
   final String Function(DateTime, int) labelForBucket;
 
   @override
@@ -108,6 +109,7 @@ class _AnalysisBody extends StatelessWidget {
                         'income, and anything else you earned or received.',
                     breakdown: analysis.incomeByCategory,
                     breakdownEmptyLabel: 'No income in this period',
+                    categoryIcons: appState.categoryIcons,
                   ),
                 ),
               ),
@@ -128,6 +130,7 @@ class _AnalysisBody extends StatelessWidget {
                         'spent, paid, or gave away.',
                     breakdown: analysis.expenseByCategory,
                     breakdownEmptyLabel: 'No expenses in this period',
+                    categoryIcons: appState.categoryIcons,
                   ),
                 ),
               ),
@@ -162,6 +165,7 @@ class _AnalysisBody extends StatelessWidget {
         CategoryPieChart(
           title: 'Expenses by category',
           data: analysis.expenseByCategory,
+          categoryIcons: appState.categoryIcons,
           isIncome: false,
           emptyLabel: 'No expenses in this period',
         ),
@@ -169,6 +173,7 @@ class _AnalysisBody extends StatelessWidget {
         CategoryPieChart(
           title: 'Income by category',
           data: analysis.incomeByCategory,
+          categoryIcons: appState.categoryIcons,
           isIncome: true,
           emptyLabel: 'No income in this period',
         ),

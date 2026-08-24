@@ -141,6 +141,7 @@ class _RecentActivity extends StatelessWidget {
         const SizedBox(height: 12),
         DayGroupedTransactions(
           transactions: appState.recentTransactions,
+          categoryIcons: appState.categoryIcons,
           initialDayCount: 3,
           onTransactionTap: (t) => onTransactionTap(t.id),
         ),

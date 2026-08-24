@@ -43,6 +43,7 @@ Future<void> showStatDetailSheet(
   required String explanation,
   required Map<String, double> breakdown,
   required String breakdownEmptyLabel,
+  required Map<String, String> categoryIcons,
 }) {
   final amountColor = isIncome ? AppColors.darkGreen : AppColors.clay;
   return showModalBottomSheet<void>(
@@ -92,6 +93,7 @@ Future<void> showStatDetailSheet(
               CategoryPieChart(
                 title: '$title by category',
                 data: breakdown,
+                categoryIcons: categoryIcons,
                 isIncome: isIncome,
                 emptyLabel: breakdownEmptyLabel,
               ),

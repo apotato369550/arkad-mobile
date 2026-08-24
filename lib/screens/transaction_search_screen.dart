@@ -217,6 +217,7 @@ class _TransactionSearchScreenState extends State<TransactionSearchScreen> {
           // Results
           DayGroupedTransactions(
             transactions: _filtered,
+            categoryIcons: widget.appState.categoryIcons,
             initialDayCount: 10,
             key: ValueKey(Object.hash(
               _queryController.text,

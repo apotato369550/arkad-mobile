@@ -17,6 +17,7 @@ class CategoryPieChart extends StatelessWidget {
     super.key,
     required this.title,
     required this.data,
+    required this.categoryIcons,
     required this.isIncome,
     this.emptyLabel = 'No activity in this range',
   });
@@ -26,6 +27,9 @@ class CategoryPieChart extends StatelessWidget {
 
   /// Map of category name to total amount.
   final Map<String, double> data;
+
+  /// Map of category name to icon key for custom categories.
+  final Map<String, String> categoryIcons;
 
   /// Whether this chart is showing income (green icon tint) or expense (red
   /// icon tint) categories.
@@ -125,6 +129,7 @@ class CategoryPieChart extends StatelessWidget {
                   amount: processedData.values.elementAt(i),
                   total: total,
                   color: _paletteColors[i % _paletteColors.length],
+                  categoryIcons: categoryIcons,
                   isIncome: isIncome,
                   hasOther: hasOther && i == processedData.length - 1,
                 ),
@@ -164,6 +169,7 @@ class _LegendItem extends StatelessWidget {
     required this.amount,
     required this.total,
     required this.color,
+    required this.categoryIcons,
     required this.isIncome,
     this.hasOther = false,
   });
@@ -172,6 +178,7 @@ class _LegendItem extends StatelessWidget {
   final double amount;
   final double total;
   final Color color;
+  final Map<String, String> categoryIcons;
   final bool isIncome;
   final bool hasOther;
 
@@ -189,7 +196,7 @@ class _LegendItem extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Image.asset(
-                categoryIconAsset(categoryIconKeyFor(category), isIncome: isIncome),
+                categoryIconAsset(categoryIconKeyFor(category, customIcons: categoryIcons), isIncome: isIncome),
                 width: 16,
                 height: 16,
               ),

@@ -75,6 +75,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           WeekPagedTransactions(
             key: ValueKey(_filter),
             transactions: transactions,
+            categoryIcons: widget.appState.categoryIcons,
             highlightId: widget.highlightId,
             emptyLabel: switch (_filter) {
               _TransactionFilter.all => 'No transactions yet. Add one to get started.',

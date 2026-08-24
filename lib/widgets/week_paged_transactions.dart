@@ -19,12 +19,14 @@ class WeekPagedTransactions extends StatefulWidget {
   const WeekPagedTransactions({
     super.key,
     required this.transactions,
+    required this.categoryIcons,
     required this.onTransactionTap,
     this.highlightId = -1,
     this.emptyLabel = 'No transactions yet.',
   });
 
   final List<LedgerTransaction> transactions;
+  final Map<String, String> categoryIcons;
   final void Function(LedgerTransaction) onTransactionTap;
   final int highlightId;
   final String emptyLabel;
@@ -136,6 +138,7 @@ class _WeekPagedTransactionsState extends State<WeekPagedTransactions> {
             for (final transaction in dayGroup.transactions)
               TransactionRow(
                 transaction: transaction,
+                categoryIcons: widget.categoryIcons,
                 highlighted: transaction.id == widget.highlightId,
                 onTap: () => widget.onTransactionTap(transaction),
               ),
