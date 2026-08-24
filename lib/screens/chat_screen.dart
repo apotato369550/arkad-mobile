@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
+import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/openrouter_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/chat_bubble.dart';
+import '../widgets/proposed_transactions_sheet.dart';
 
 /// Full-screen on mobile — see STYLE_GUIDE.md § Chat drawer
 /// ("Full width on smaller screens").
@@ -71,6 +73,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scrollToBottom();
 
+    List<LedgerTransaction> proposedTransactions = const [];
     try {
       final reply = await _service.sendMessage(
         apiKey: appState.effectiveApiKey,
@@ -82,20 +85,24 @@ class _ChatScreenState extends State<ChatScreen> {
         expenseCategories: appState.expenseCategories,
         profile: appState.profile,
       );
-      if (reply.transaction != null) {
-        appState.addTransaction(reply.transaction!);
-      }
       appState.addChatMessage(ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch + 1,
         role: ChatRole.assistant,
         content: reply.text,
         timestamp: DateTime.now(),
       ));
+      proposedTransactions = reply.transactions;
     } on OpenRouterException catch (e) {
       setState(() => _error = e.message);
     } finally {
+      // Reset the "thinking" state before opening the review modal below,
+      // so the loading indicator doesn't remain visible underneath it.
       if (mounted) setState(() => _sending = false);
       _scrollToBottom();
+    }
+
+    if (proposedTransactions.isNotEmpty && mounted) {
+      await showProposedTransactionsSheet(context, appState: appState, drafts: proposedTransactions);
     }
   }
 

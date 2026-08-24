@@ -19,16 +19,18 @@ class OpenRouterException implements Exception {
 }
 
 /// A parsed reply from the agent: the text to show in the chat bubble, plus
-/// an optional structured transaction the agent extracted from the user's
-/// message (see IDEA.md § Core idea — conversational ledger entry).
+/// zero or more structured transactions the agent extracted from the user's
+/// message (see IDEA.md § Core idea — conversational ledger entry). These are
+/// drafts only — nothing is added to the ledger until the user approves them
+/// in the review modal (see ProposedTransactionsSheet).
 class AgentReply {
   AgentReply({
     required this.text,
-    this.transaction,
+    this.transactions = const [],
     this.referencedTransactionIds = const [],
   });
   final String text;
-  final LedgerTransaction? transaction;
+  final List<LedgerTransaction> transactions;
   final List<int> referencedTransactionIds;
 }
 
@@ -498,39 +500,35 @@ $_responseStyle
   }
 
   AgentReply _parseReply(String content) {
-    final (displayText, refIds, transactionJson) = stripAndParseArkadBlocks(content);
+    final (displayText, refIds, transactionMaps) = stripAndParseArkadBlocks(content);
 
-    // Try to parse the transaction block if present
-    if (transactionJson != null) {
+    // Build a draft LedgerTransaction for each parsed map. Each gets a
+    // distinct id (base timestamp + loop index) so a multi-item batch never
+    // collides on id before the user approves and it's actually added.
+    final baseId = DateTime.now().millisecondsSinceEpoch;
+    final transactions = <LedgerTransaction>[];
+    for (var i = 0; i < transactionMaps.length; i++) {
+      final map = transactionMaps[i];
       try {
-        final type = (transactionJson['type'] as String).toLowerCase() == 'income'
+        final type = (map['type'] as String).toLowerCase() == 'income'
             ? TransactionType.income
             : TransactionType.expense;
-        final transaction = LedgerTransaction(
-          id: DateTime.now().millisecondsSinceEpoch,
-          merchant: transactionJson['merchant'] as String,
-          category: transactionJson['category'] as String,
+        transactions.add(LedgerTransaction(
+          id: baseId + i,
+          merchant: map['merchant'] as String,
+          category: map['category'] as String,
           date: DateTime.now(),
-          amount: (transactionJson['amount'] as num).toDouble(),
+          amount: (map['amount'] as num).toDouble(),
           type: type,
-        );
-        final note = 'Added to your ledger: ${transaction.merchant} · '
-            '${formatSignedCurrency(transaction.amount, isIncome: type == TransactionType.income)}';
-        return AgentReply(
-          text: displayText.isEmpty ? note : '$displayText\n\n$note',
-          transaction: transaction,
-          referencedTransactionIds: refIds,
-        );
+        ));
       } catch (_) {
-        return AgentReply(
-          text: displayText.isEmpty ? content : displayText,
-          referencedTransactionIds: refIds,
-        );
+        // Malformed entry — skip it, don't discard the rest of the batch.
       }
     }
 
     return AgentReply(
       text: displayText.isEmpty ? content : displayText,
+      transactions: transactions,
       referencedTransactionIds: refIds,
     );
   }
@@ -569,7 +567,7 @@ Known income categories: ${incomeCategories.join(', ')}
 Known expense categories: ${expenseCategories.join(', ')}
 
 You have two jobs:
-1. If the user describes a transaction in natural language (e.g. "I spent \$12 on lunch at Chipotle" or "got paid \$3200"), extract it and append, after your short conversational reply, a fenced code block tagged ```$_transactionTag containing ONLY this JSON (no comments): {"merchant": string, "category": string (pick the closest known category, or a sensible new one), "amount": number (always positive), "type": "income" | "expense"}. Only emit this block when the user is clearly describing a real transaction to log.
+1. If the user describes one or more transactions in natural language (e.g. "I spent \$12 on lunch at Chipotle" or "spent \$12 on lunch and \$40 on gas" or "got paid \$3200"), extract every transaction described and append, after your short conversational reply, a fenced code block tagged ```$_transactionTag containing ONLY a JSON array of every transaction described (no comments): [{"merchant": string, "category": string (pick the closest known category, or a sensible new one), "amount": number (always positive), "type": "income" | "expense"}, ...]. Always use an array, even for a single transaction. Only emit this block when the user is clearly describing one or more real transactions to log — nothing is added to the ledger automatically, the user reviews and approves each one, so extract everything you're reasonably confident about.
 2. When discussing specific transactions from the context above, append a fenced code block tagged ```arkad_refs containing a JSON array of the transaction ids you referenced: [101, 104, 110]. Always include this when you reference specific transactions; only include ids that were actually provided to you.
 3. If the user asks an analysis or informational question about their spending, answer it directly and concisely using the ledger data above. Do not emit the transaction code block in this case (but do emit arkad_refs if you reference specific transactions).
 
@@ -821,20 +819,40 @@ Respond in markdown only (no code fences around the whole response). Give qualit
 }
 
 /// Public function to strip and parse arkad_transaction and arkad_refs blocks.
-/// Returns (displayText, referencedTransactionIds, transactionJson).
-/// The displayText has both blocks removed. transactionJson is null if no transaction block found.
-(String, List<int>, Map<String, dynamic>?) stripAndParseArkadBlocks(String content) {
+/// Returns (displayText, referencedTransactionIds, transactionMaps).
+/// The displayText has both blocks removed. transactionMaps is a list of raw
+/// transaction JSON maps — empty if no transaction block was found or it
+/// couldn't be parsed at all. The model is expected to emit a JSON array,
+/// but a bare JSON object is also accepted (wrapped into a single-element
+/// list) for backward compatibility. Each array element is parsed
+/// independently so one malformed entry doesn't discard the whole batch.
+(String, List<int>, List<Map<String, dynamic>>) stripAndParseArkadBlocks(String content) {
   // Extract and remove arkad_transaction block
   final transactionPattern = RegExp('```arkad_transaction\\s*([\\s\\S]*?)```', multiLine: true);
   final transactionMatch = transactionPattern.firstMatch(content);
 
-  Map<String, dynamic>? transactionJson;
+  final transactionMaps = <Map<String, dynamic>>[];
   var displayText = content;
 
   if (transactionMatch != null) {
     displayText = displayText.replaceRange(transactionMatch.start, transactionMatch.end, '');
     try {
-      transactionJson = jsonDecode(transactionMatch.group(1)!.trim()) as Map<String, dynamic>;
+      final decoded = jsonDecode(transactionMatch.group(1)!.trim());
+      if (decoded is List) {
+        for (final entry in decoded) {
+          try {
+            transactionMaps.add(entry as Map<String, dynamic>);
+          } catch (_) {
+            // Malformed entry, skip it but keep the rest of the batch.
+          }
+        }
+      } else if (decoded is Map) {
+        try {
+          transactionMaps.add(decoded as Map<String, dynamic>);
+        } catch (_) {
+          // Malformed, treat as empty.
+        }
+      }
     } catch (_) {
       // Malformed JSON, treat as empty
     }
@@ -858,5 +876,5 @@ Respond in markdown only (no code fences around the whole response). Give qualit
   }
 
   displayText = displayText.trim();
-  return (displayText, refIds, transactionJson);
+  return (displayText, refIds, transactionMaps);
 }
