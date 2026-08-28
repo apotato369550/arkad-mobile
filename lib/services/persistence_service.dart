@@ -35,6 +35,7 @@ class PersistenceService {
   static const _savedAnalysesKey = 'arkad:saved-analyses:v1';
   static const _analysisRequestLogKey = 'arkad:analysis-request-log:v1';
   static const _backupSettingsKey = 'arkad:backup-settings:v1';
+  static const _categoriesDefaultsMergedKey = 'arkad:categories-defaults-merged:v1';
   static const _secureApiKeyKey = 'arkad_api_key';
   // Bounds every secure-storage call: Keystore/libsecret access can in
   // principle stall (platform prompts, a broken keyring service), and that
@@ -76,6 +77,30 @@ class PersistenceService {
           }
         } catch (_) {}
       }
+    }
+
+    // One-time migration: existing installs saved a snapshot of the default
+    // category lists on first run, so category names added to
+    // defaultIncomeCategories/defaultExpenseCategories in later app updates
+    // never reached already-installed users. Merge any missing defaults into
+    // the saved lists once, preserving existing order, custom categories,
+    // and any user deletions made since.
+    if (prefs.getBool(_categoriesDefaultsMergedKey) != true) {
+      final income = prefs.getStringList(_incomeCategoriesKey);
+      if (income != null && income.isNotEmpty) {
+        final missing = defaultIncomeCategories.where((c) => !income.contains(c));
+        if (missing.isNotEmpty) {
+          await prefs.setStringList(_incomeCategoriesKey, [...income, ...missing]);
+        }
+      }
+      final expense = prefs.getStringList(_expenseCategoriesKey);
+      if (expense != null && expense.isNotEmpty) {
+        final missing = defaultExpenseCategories.where((c) => !expense.contains(c));
+        if (missing.isNotEmpty) {
+          await prefs.setStringList(_expenseCategoriesKey, [...expense, ...missing]);
+        }
+      }
+      await prefs.setBool(_categoriesDefaultsMergedKey, true);
     }
 
     return PersistenceService._(prefs, secureStorage, apiKey);

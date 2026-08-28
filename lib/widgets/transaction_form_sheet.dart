@@ -107,6 +107,7 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
         decoration: const BoxDecoration(
           color: AppColors.paper,
           borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.modal)),
@@ -139,45 +140,54 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
               TypeToggle(type: _type, onChanged: _setType),
               const SizedBox(height: 18),
             ],
-            TextField(
-              controller: _merchantController,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Merchant / source'),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: AppTextStyles.dmMono(),
-              decoration: InputDecoration(
-                labelText: 'Amount',
-                prefixText: '${currencySymbolFor(widget.appState.profile.currencyCode)} ',
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _merchantController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(labelText: 'Merchant / source'),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _amountController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      style: AppTextStyles.dmMono(),
+                      decoration: InputDecoration(
+                        labelText: 'Amount',
+                        prefixText: '${currencySymbolFor(widget.appState.profile.currencyCode)} ',
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text('Category', style: AppTextStyles.metadata()),
+                    const SizedBox(height: 10),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 0.82,
+                      ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, i) {
+                        final c = categories[i];
+                        final iconKey = categoryIconKeyFor(c, customIcons: widget.appState.categoryIcons);
+                        return CategoryGridTile(
+                          label: c,
+                          iconKey: iconKey,
+                          isIncome: _type == TransactionType.income,
+                          selected: c == _category,
+                          onTap: () => setState(() => _category = c),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Text('Category', style: AppTextStyles.metadata()),
-            const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 4,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 0.82,
-              ),
-              itemCount: categories.length,
-              itemBuilder: (context, i) {
-                final c = categories[i];
-                final iconKey = categoryIconKeyFor(c, customIcons: widget.appState.categoryIcons);
-                return CategoryGridTile(
-                  label: c,
-                  iconKey: iconKey,
-                  isIncome: _type == TransactionType.income,
-                  selected: c == _category,
-                  onTap: () => setState(() => _category = c),
-                );
-              },
             ),
             const SizedBox(height: 24),
             ElevatedButton(
