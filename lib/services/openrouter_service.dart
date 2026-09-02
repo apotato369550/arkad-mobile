@@ -7,6 +7,7 @@ import '../models/profile.dart';
 import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
 import 'formatters.dart';
+import 'prompt_loader.dart';
 
 enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, unknown }
 
@@ -41,11 +42,6 @@ class OpenRouterService {
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   static const _transactionTag = 'arkad_transaction';
 
-  /// Shared Arkad persona voice, reused by the chat system prompt and the
-  /// one-shot analysis prompt.
-  static const _personaIntro =
-      "You are Arkad, named for the legendary richest man in Babylon — a patient, warm financial mentor, not a lecturing chatbot. You believe: a part of all one earns is theirs to keep (encourage saving before spending); money must be put to work, not left idle; guard savings from loss (favor sound, proven habits over speculation); a person's ability to earn is their greatest asset (encourage growth, not just cutting); plan for the future. Ground every answer in the user's actual data — their real transactions, categories, and goals — never generic platitudes when specifics are available. Be concise and actionable.";
-
   Future<AgentReply> sendMessage({
     required String apiKey,
     required String modelSlug,
@@ -60,17 +56,15 @@ class OpenRouterService {
       throw OpenRouterException('No OpenRouter API key configured.');
     }
 
+    final systemPrompt = await _buildSystemPrompt(
+      ledger: ledger,
+      incomeCategories: incomeCategories,
+      expenseCategories: expenseCategories,
+      profile: profile,
+      userMessage: userMessage,
+    );
     final messages = [
-      {
-        'role': 'system',
-        'content': _buildSystemPrompt(
-          ledger: ledger,
-          incomeCategories: incomeCategories,
-          expenseCategories: expenseCategories,
-          profile: profile,
-          userMessage: userMessage,
-        ),
-      },
+      {'role': 'system', 'content': systemPrompt},
       for (final m in history)
         {'role': m.role == ChatRole.user ? 'user' : 'assistant', 'content': m.content},
     ];
@@ -107,19 +101,17 @@ class OpenRouterService {
       throw OpenRouterException('No OpenRouter API key configured.');
     }
 
+    final systemPrompt = await _buildAnalysisPrompt(
+      profile: profile,
+      range: range,
+      totalIncome: totalIncome,
+      totalExpense: totalExpense,
+      expenseByCategory: expenseByCategory,
+      previousPeriodIncome: previousPeriodIncome,
+      previousPeriodExpense: previousPeriodExpense,
+    );
     final messages = [
-      {
-        'role': 'system',
-        'content': _buildAnalysisPrompt(
-          profile: profile,
-          range: range,
-          totalIncome: totalIncome,
-          totalExpense: totalExpense,
-          expenseByCategory: expenseByCategory,
-          previousPeriodIncome: previousPeriodIncome,
-          previousPeriodExpense: previousPeriodExpense,
-        ),
-      },
+      {'role': 'system', 'content': systemPrompt},
     ];
 
     final decoded = await _postChatCompletion(
@@ -168,21 +160,17 @@ class OpenRouterService {
       );
     }
 
-    final prompt = '''
-$_personaIntro
-
-You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
-
-Period: ${formatDate(range.start)} to ${formatDate(range.end)}
-
-Total income: ${formatCurrency(totalIncome)}
-Total expenses: ${formatCurrency(totalExpense)}
-Net: ${formatCurrency(net)}
-${derivedLines.isEmpty ? '' : '$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
-Question: How purposeful was the user's spending this period — did it clearly serve their stated goals and values, or did a meaningful share drift into impulsive or low-value spending? Point to specific categories or patterns that show intentional vs. unintentional spending. If no goal or savings target is stated, still assess purposefulness using savings rate and category concentration, and suggest they set a goal in their profile.
-
-$_responseStyle
-''';
+    final prompt = await renderPrompt('analysis_goal_progress', {
+      'persona': await loadPromptTemplate('persona'),
+      'period_start': formatDate(range.start),
+      'period_end': formatDate(range.end),
+      'total_income': formatCurrency(totalIncome),
+      'total_expense': formatCurrency(totalExpense),
+      'net': formatCurrency(net),
+      'context_block':
+          '${derivedLines.isEmpty ? '' : '$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
+      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+    });
 
     final decoded = await _postChatCompletion(
       apiKey: apiKey,
@@ -231,20 +219,15 @@ $_responseStyle
       derivedLines.writeln('Previous period\'s total expenses: ${formatCurrency(previousPeriodExpense)}');
     }
 
-    final prompt = '''
-$_personaIntro
-
-You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
-
-Period: ${formatDate(range.start)} to ${formatDate(range.end)}
-
-Expense breakdown by category:
-${categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines}
-${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}
-Question: Looking at this period's spending, where could money have been saved better? Rank the top 1-3 opportunities and explain concretely what "saved better" would have looked like for each. If the user has fixed monthly obligations on file, don't suggest cutting those — focus on discretionary categories.
-
-$_responseStyle
-''';
+    final prompt = await renderPrompt('analysis_cost_cutting', {
+      'persona': await loadPromptTemplate('persona'),
+      'period_start': formatDate(range.start),
+      'period_end': formatDate(range.end),
+      'category_lines': categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines,
+      'context_block':
+          '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}',
+      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+    });
 
     final decoded = await _postChatCompletion(
       apiKey: apiKey,
@@ -320,27 +303,19 @@ $_responseStyle
       );
     }
 
-    final prompt = '''
-$_personaIntro
-
-You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
-
-Period: ${formatDate(range.start)} to ${formatDate(range.end)}
-
-Total income: ${formatCurrency(totalIncome)}
-Total expenses: ${formatCurrency(totalExpense)}
-Net: ${formatCurrency(net)}
-
-Income breakdown by category:
-${incomeLines.isEmpty ? '(no income in this period)' : incomeLines}
-
-Expense breakdown by category:
-${expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines}
-${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
-Question: Give a short overall assessment of this period's financial health.
-
-$_responseStyle
-''';
+    final prompt = await renderPrompt('analysis_overall_assessment', {
+      'persona': await loadPromptTemplate('persona'),
+      'period_start': formatDate(range.start),
+      'period_end': formatDate(range.end),
+      'total_income': formatCurrency(totalIncome),
+      'total_expense': formatCurrency(totalExpense),
+      'net': formatCurrency(net),
+      'income_lines': incomeLines.isEmpty ? '(no income in this period)' : incomeLines,
+      'expense_lines': expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines,
+      'context_block':
+          '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
+      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+    });
 
     final decoded = await _postChatCompletion(
       apiKey: apiKey,
@@ -401,27 +376,19 @@ $_responseStyle
       );
     }
 
-    final prompt = '''
-$_personaIntro
-
-You are answering ONE focused question for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
-
-Period: ${formatDate(range.start)} to ${formatDate(range.end)}
-
-Total income: ${formatCurrency(totalIncome)}
-Total expenses: ${formatCurrency(totalExpense)}
-Net: ${formatCurrency(net)}
-
-Income breakdown by category:
-${incomeLines.isEmpty ? '(no income in this period)' : incomeLines}
-
-Expense breakdown by category:
-${expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines}
-${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}
-Question: Give 3-5 concrete, specific next actions for the upcoming period — tie each to a number where possible (a dollar amount, a percentage, a category). Number the list. If there's a previous check-in above, build on it rather than repeating the same actions verbatim.
-
-$_responseStyle
-''';
+    final prompt = await renderPrompt('analysis_actionable_steps', {
+      'persona': await loadPromptTemplate('persona'),
+      'period_start': formatDate(range.start),
+      'period_end': formatDate(range.end),
+      'total_income': formatCurrency(totalIncome),
+      'total_expense': formatCurrency(totalExpense),
+      'net': formatCurrency(net),
+      'income_lines': incomeLines.isEmpty ? '(no income in this period)' : incomeLines,
+      'expense_lines': expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines,
+      'context_block':
+          '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
+      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+    });
 
     final decoded = await _postChatCompletion(
       apiKey: apiKey,
@@ -533,13 +500,13 @@ $_responseStyle
     );
   }
 
-  String _buildSystemPrompt({
+  Future<String> _buildSystemPrompt({
     required List<LedgerTransaction> ledger,
     required List<String> incomeCategories,
     required List<String> expenseCategories,
     required Profile profile,
     required String userMessage,
-  }) {
+  }) async {
     final totalIncome = ledger
         .where((t) => t.type == TransactionType.income)
         .fold(0.0, (s, t) => s + t.amount);
@@ -556,23 +523,19 @@ $_responseStyle
 
     // Build profile section if any profile field is non-empty
     final profileLines = _buildProfileSection(profile);
+    final profileBlock = profileLines.isEmpty ? '' : '$profileLines\n';
 
-    return '''
-$_personaIntro
-
-${profileLines.isEmpty ? '' : '$profileLines\n'}The user's ledger currently has ${ledger.length} transactions. Total income: \$${totalIncome.toStringAsFixed(2)}. Total expenses: \$${totalExpense.toStringAsFixed(2)}. Relevant transactions:
-$transactionLines
-
-Known income categories: ${incomeCategories.join(', ')}
-Known expense categories: ${expenseCategories.join(', ')}
-
-You have two jobs:
-1. If the user describes one or more transactions in natural language (e.g. "I spent \$12 on lunch at Chipotle" or "spent \$12 on lunch and \$40 on gas" or "got paid \$3200"), extract every transaction described and append, after your short conversational reply, a fenced code block tagged ```$_transactionTag containing ONLY a JSON array of every transaction described (no comments): [{"merchant": string, "category": string (pick the closest known category, or a sensible new one), "amount": number (always positive), "type": "income" | "expense"}, ...]. Always use an array, even for a single transaction. Only emit this block when the user is clearly describing one or more real transactions to log — nothing is added to the ledger automatically, the user reviews and approves each one, so extract everything you're reasonably confident about.
-2. When discussing specific transactions from the context above, append a fenced code block tagged ```arkad_refs containing a JSON array of the transaction ids you referenced: [101, 104, 110]. Always include this when you reference specific transactions; only include ids that were actually provided to you.
-3. If the user asks an analysis or informational question about their spending, answer it directly and concisely using the ledger data above. Do not emit the transaction code block in this case (but do emit arkad_refs if you reference specific transactions).
-
-Keep replies short, warm, and precise. Never fabricate transactions that weren't described.
-''';
+    return renderPrompt('chat_system', {
+      'persona': await loadPromptTemplate('persona'),
+      'profile_block': profileBlock,
+      'ledger_count': '${ledger.length}',
+      'total_income': totalIncome.toStringAsFixed(2),
+      'total_expense': totalExpense.toStringAsFixed(2),
+      'transaction_lines': transactionLines,
+      'income_categories': incomeCategories.join(', '),
+      'expense_categories': expenseCategories.join(', '),
+      'transaction_tag': _transactionTag,
+    });
   }
 
   /// Builds a brief "About the user" profile section for the system prompt.
@@ -628,17 +591,9 @@ Reflect on progress since then where relevant — don't just repeat it.
 ''';
   }
 
-  /// Shared tone + formatting instructions for the four one-shot analysis
-  /// prompts (goal progress / cost cutting / overall / actionable steps).
-  /// Scoped to those prompts only — the chat system prompt is untouched.
-  static const _responseStyle = '''
-Before addressing any concern, name one specific positive thing grounded in the actual data — a category the user controlled well, income earned, progress made. Never fabricate a win. If the period was genuinely difficult, say so plainly and note effort/consistency where visible instead of inventing positives.
-
-Respond in plain markdown only (no code fences around the whole response). Be concise: 2-4 short paragraphs or a short list. Ground your answer in the actual numbers given, not generic advice. Do NOT emit any ```$_transactionTag or ```arkad_refs code blocks — this is commentary only.''';
-
   /// Builds the system prompt for a one-shot, non-chat qualitative analysis
   /// of a time-ranged view of the user's finances (see [analyzeFinances]).
-  String _buildAnalysisPrompt({
+  Future<String> _buildAnalysisPrompt({
     required Profile profile,
     required DateTimeRange range,
     required double totalIncome,
@@ -646,7 +601,7 @@ Respond in plain markdown only (no code fences around the whole response). Be co
     required Map<String, double> expenseByCategory,
     double? previousPeriodIncome,
     double? previousPeriodExpense,
-  }) {
+  }) async {
     final net = totalIncome - totalExpense;
 
     final categoryLines = expenseByCategory.entries
@@ -666,23 +621,18 @@ Respond in plain markdown only (no code fences around the whole response). Be co
 
     final profileLines = _buildProfileSection(profile);
 
-    return '''
-$_personaIntro
-
-You are producing a one-shot qualitative analysis for the app's Analysis screen — this is NOT a conversation, there is no user message to respond to and no follow-up.
-
-Period: ${formatDate(range.start)} to ${formatDate(range.end)}
-
-Total income: ${formatCurrency(totalIncome)}
-Total expenses: ${formatCurrency(totalExpense)}
-Net: ${formatCurrency(net)}
-
-Expense breakdown by category:
-${categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines}
-${comparisonLines.toString()}
-${profileLines.isEmpty ? '' : '\n$profileLines'}
-Respond in markdown only (no code fences around the whole response). Give qualitative commentary on how this period's activity aligns with the user's stated financial goal and savings target (if any), note any notable category concentration, and offer one or two concrete suggestions. Do NOT emit any ```$_transactionTag or ```arkad_refs code blocks — this is commentary only, not a ledger action.
-''';
+    return renderPrompt('analysis_finances', {
+      'persona': await loadPromptTemplate('persona'),
+      'period_start': formatDate(range.start),
+      'period_end': formatDate(range.end),
+      'total_income': formatCurrency(totalIncome),
+      'total_expense': formatCurrency(totalExpense),
+      'net': formatCurrency(net),
+      'category_lines': categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines,
+      'comparison_block': comparisonLines.toString(),
+      'profile_block': profileLines.isEmpty ? '' : '\n$profileLines',
+      'transaction_tag': _transactionTag,
+    });
   }
 
   /// Retrieves relevant transactions based on keyword/category/date matching.

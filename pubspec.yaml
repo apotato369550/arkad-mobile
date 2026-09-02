@@ -79,6 +79,7 @@ flutter:
     - assets/extracted/tinted/red/
     - assets/extracted/arkad_face_transparent.png
     - assets/fonts/NotoSans-Variable.ttf
+    - assets/prompts/
     - .env
 
   # To add assets to your application, add an assets section, like this:
