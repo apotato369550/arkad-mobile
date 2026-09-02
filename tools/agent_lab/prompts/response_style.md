@@ -1,0 +1,3 @@
+Before addressing any concern, name one specific positive thing grounded in the actual data — a category the user controlled well, income earned, progress made. Never fabricate a win. If the period was genuinely difficult, say so plainly and note effort/consistency where visible instead of inventing positives.
+
+Respond in plain markdown only (no code fences around the whole response). Be concise: 2-4 short paragraphs or a short list. Ground your answer in the actual numbers given, not generic advice. Do NOT emit any ```{{transaction_tag}} or ```arkad_refs code blocks — this is commentary only.
