@@ -9,7 +9,7 @@ import '../models/transaction.dart';
 import 'formatters.dart';
 import 'prompt_loader.dart';
 
-enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, unknown }
+enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, emptyResponse, unknown }
 
 class OpenRouterException implements Exception {
   OpenRouterException(this.message, {this.kind = OpenRouterErrorKind.unknown});
@@ -39,8 +39,16 @@ class AgentReply {
 /// See IDEA.md: "All calls are made directly from the browser to OpenRouter,
 /// no proxy server" — mirrored here as direct client calls from the app.
 class OpenRouterService {
+  OpenRouterService({http.Client? client, Future<void> Function(Duration)? delay})
+    : _client = client ?? http.Client(),
+      _delay = delay ?? ((duration) => Future<void>.delayed(duration));
+
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   static const _transactionTag = 'arkad_transaction';
+  static const _retryDelays = [Duration(milliseconds: 400), Duration(milliseconds: 1200)];
+
+  final http.Client _client;
+  final Future<void> Function(Duration) _delay;
 
   Future<AgentReply> sendMessage({
     required String apiKey,
@@ -69,16 +77,7 @@ class OpenRouterService {
         {'role': m.role == ChatRole.user ? 'user' : 'assistant', 'content': m.content},
     ];
 
-    final decoded = await _postChatCompletion(
-      apiKey: apiKey,
-      modelSlug: modelSlug,
-      messages: messages,
-    );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    final content = (choices.first['message']?['content'] as String?)?.trim() ?? '';
+    final content = await _requestCompletionText(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
     return _parseReply(content);
   }
 
@@ -114,16 +113,7 @@ class OpenRouterService {
       {'role': 'system', 'content': systemPrompt},
     ];
 
-    final decoded = await _postChatCompletion(
-      apiKey: apiKey,
-      modelSlug: modelSlug,
-      messages: messages,
-    );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
+    return _requestCompletionText(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
   }
 
   /// One-shot question: how purposeful the user's spending was this period —
@@ -172,18 +162,13 @@ class OpenRouterService {
       'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
     });
 
-    final decoded = await _postChatCompletion(
+    return _requestCompletionText(
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: [
         {'role': 'system', 'content': prompt},
       ],
     );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
 
   /// One-shot question: where this period's spending could have been saved
@@ -229,18 +214,13 @@ class OpenRouterService {
       'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
     });
 
-    final decoded = await _postChatCompletion(
+    return _requestCompletionText(
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: [
         {'role': 'system', 'content': prompt},
       ],
     );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
 
   /// One-shot question: a short overall assessment of the period's
@@ -317,18 +297,13 @@ class OpenRouterService {
       'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
     });
 
-    final decoded = await _postChatCompletion(
+    return _requestCompletionText(
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: [
         {'role': 'system', 'content': prompt},
       ],
     );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
 
   /// One-shot question: 3-5 concrete, specific next actions for the upcoming
@@ -390,19 +365,57 @@ class OpenRouterService {
       'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
     });
 
-    final decoded = await _postChatCompletion(
+    return _requestCompletionText(
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: [
         {'role': 'system', 'content': prompt},
       ],
     );
-    final choices = decoded['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.');
-    }
-    return (choices.first['message']?['content'] as String?)?.trim() ?? '';
   }
+
+  /// Requests a non-streaming completion and retries failures that can be
+  /// caused by a temporarily unavailable provider. The free-model router may
+  /// select a different provider on each attempt, so retrying an empty 200
+  /// response is useful as well as retrying rate limits and server failures.
+  Future<String> _requestCompletionText({
+    required String apiKey,
+    required String modelSlug,
+    required List<Map<String, String>> messages,
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        final decoded = await _postChatCompletion(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
+        return _completionText(decoded);
+      } on OpenRouterException catch (error) {
+        if (attempt >= _retryDelays.length || !_isRetryable(error.kind)) {
+          rethrow;
+        }
+        await _delay(_retryDelays[attempt]);
+      }
+    }
+  }
+
+  String _completionText(Map<String, dynamic> decoded) {
+    final choices = decoded['choices'];
+    if (choices is! List || choices.isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.', kind: OpenRouterErrorKind.emptyResponse);
+    }
+
+    final choice = choices.first;
+    final message = choice is Map ? choice['message'] : null;
+    final content = message is Map ? message['content'] : null;
+    if (content is! String || content.trim().isEmpty) {
+      throw OpenRouterException('OpenRouter returned an empty response.', kind: OpenRouterErrorKind.emptyResponse);
+    }
+    return content.trim();
+  }
+
+  bool _isRetryable(OpenRouterErrorKind kind) =>
+      kind == OpenRouterErrorKind.emptyResponse ||
+      kind == OpenRouterErrorKind.rateLimited ||
+      kind == OpenRouterErrorKind.network ||
+      kind == OpenRouterErrorKind.server;
 
   /// Performs the raw OpenRouter chat-completions HTTP call: builds the
   /// request, classifies network/HTTP errors into an [OpenRouterException]
@@ -415,7 +428,7 @@ class OpenRouterService {
   }) async {
     late http.Response response;
     try {
-      response = await http.post(
+      response = await _client.post(
         Uri.parse(_endpoint),
         headers: {
           'Authorization': 'Bearer $apiKey',
@@ -458,7 +471,9 @@ class OpenRouterService {
       try {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         final err = body['error'];
-        if (err is Map && err['message'] is String) detail = err['message'] as String;
+        if (err is Map && err['message'] is String) {
+          detail = err['message'] as String;
+        }
       } catch (_) {}
       throw OpenRouterException(detail, kind: kind);
     }

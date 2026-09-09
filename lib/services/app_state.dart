@@ -733,7 +733,10 @@ class AppState extends ChangeNotifier {
 
     final id = now.millisecondsSinceEpoch.toString();
 
-    final results = await Future.wait([
+    // Keep at most two OpenRouter requests in flight. Free-model providers
+    // have limited capacity, and launching all four sections together makes
+    // transient empty/rate-limited responses more likely.
+    final firstResults = await Future.wait([
       _fetchGoalProgress(
         range,
         totalIncome,
@@ -750,6 +753,8 @@ class AppState extends ChangeNotifier {
         topCategoryPercent,
         prevExpense,
       ),
+    ]);
+    final secondResults = await Future.wait([
       _fetchOverallAssessment(
         range,
         totalIncome,
@@ -778,6 +783,7 @@ class AppState extends ChangeNotifier {
         previousAnalysis,
       ),
     ]);
+    final results = [...firstResults, ...secondResults];
 
     if (results.every((r) => r.status == AnalysisAnswerStatus.error)) {
       throw AnalysisRequestException(
