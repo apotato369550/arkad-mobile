@@ -49,3 +49,5 @@ app.*.map.json
 debug/
 android/key.properties
 android/keystore/
+
+venv/
