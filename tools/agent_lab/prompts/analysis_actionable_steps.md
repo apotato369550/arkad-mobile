@@ -14,6 +14,9 @@ Income breakdown by category:
 Expense breakdown by category:
 {{expense_lines}}
 {{context_block}}
-Question: Give 3-5 concrete, specific next actions for the upcoming period — tie each to a number where possible (a dollar amount, a percentage, a category). Number the list. If there's a previous check-in above, build on it rather than repeating the same actions verbatim.
+Question: Create exactly three prioritized actions for the next period. Base every action on an observed fact. Cover: (1) reviewing the largest repeated non-protected spending pattern because controllability is unknown without merchant context; its target must be to review the supplied number of transactions, not a new spending limit; (2) determining whether large single-transaction expenses are one-off and planning for them without recommending that they be cut; and (3) income or cash-flow tracking when net cash flow is negative. Compare actual income only with the supplied period-scaled typical income, never directly with monthly income. Repeat only supplied numbers. Do not invent a reduction target or goal timeline.
+
+Use a numbered list. Each item must use exactly this format:
+1. **Evidence:** supplied fact. **Action:** specific next-period behavior or decision. **Target:** a measurable amount, count, or check-in criterion supported by that evidence.
 
 {{response_style}}

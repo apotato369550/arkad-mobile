@@ -26,6 +26,14 @@ class DateRange:
     end: date  # inclusive
 
 
+@dataclass(frozen=True)
+class CategoryPattern:
+    total: float
+    count: int
+    min_amount: float
+    max_amount: float
+
+
 def load_backup(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -95,6 +103,30 @@ def expense_by_category(transactions: list[dict], range_: DateRange) -> dict[str
 
 def income_by_category(transactions: list[dict], range_: DateRange) -> dict[str, float]:
     return _category_totals(transactions, range_, "income")
+
+
+def category_patterns(
+    transactions: list[dict], range_: DateRange, tx_type: str
+) -> dict[str, CategoryPattern]:
+    """Summarize observed category activity without inferring recurrence."""
+    amounts: dict[str, list[float]] = {}
+    for transaction in transactions:
+        if transaction["type"] != tx_type:
+            continue
+        transaction_date = _tx_date(transaction)
+        if transaction_date < range_.start or transaction_date > range_.end:
+            continue
+        amounts.setdefault(transaction["category"], []).append(transaction["amount"])
+
+    return {
+        category: CategoryPattern(
+            total=sum(values),
+            count=len(values),
+            min_amount=min(values),
+            max_amount=max(values),
+        )
+        for category, values in amounts.items()
+    }
 
 
 def top_category(expense_cats: dict[str, float], total_expense: float) -> tuple[str, float, float] | None:

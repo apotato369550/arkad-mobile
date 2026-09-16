@@ -35,6 +35,9 @@ python tui_chat.py --backup backups/you@example.com.json --model <slug> --show-p
 
 # 3. Run the four analysis prompts and get a report
 python analyze.py --backup backups/you@example.com.json --period month --out output/
+
+# Reproduce a report for a historical end date
+python analyze.py --backup backups/you@example.com.json --period week --as-of 2026-09-05 --out output/
 ```
 
 Check [openrouter.ai/models](https://openrouter.ai/models) for current
