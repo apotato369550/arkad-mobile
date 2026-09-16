@@ -9,10 +9,12 @@ import '../models/chat_message.dart';
 import '../models/conversation.dart';
 import '../models/profile.dart';
 import '../models/saved_analysis.dart';
+import '../models/spending_style_profile.dart';
 import '../models/transaction.dart';
 import 'app_config.dart';
 import 'cloud_backup_service.dart';
 import 'formatters.dart';
+import 'id_generator.dart';
 import 'openrouter_service.dart';
 import 'persistence_service.dart';
 
@@ -31,40 +33,44 @@ class AnalysisRequestException implements Exception {
 /// [AnalysisAnswerStatus.error] with [error] set on failure. Never
 /// `AnalysisAnswerStatus.loading` — by the time a result exists, the call has
 /// resolved one way or the other.
-typedef _AnswerResult = ({String? text, AnalysisAnswerStatus status, String? error});
+typedef _AnswerResult = ({
+  String? text,
+  AnalysisAnswerStatus status,
+  String? error,
+});
 
 enum CashFlowRange { sevenDays, sixMonths, twelveMonths }
 
 extension CashFlowRangeLabel on CashFlowRange {
   String get shortLabel => switch (this) {
-        CashFlowRange.sevenDays => '7D',
-        CashFlowRange.sixMonths => '6M',
-        CashFlowRange.twelveMonths => '12M',
-      };
+    CashFlowRange.sevenDays => '7D',
+    CashFlowRange.sixMonths => '6M',
+    CashFlowRange.twelveMonths => '12M',
+  };
 
   String get caption => switch (this) {
-        CashFlowRange.sevenDays => 'Last 7 days',
-        CashFlowRange.sixMonths => 'Last 6 months',
-        CashFlowRange.twelveMonths => 'Last 12 months',
-      };
+    CashFlowRange.sevenDays => 'Last 7 days',
+    CashFlowRange.sixMonths => 'Last 6 months',
+    CashFlowRange.twelveMonths => 'Last 12 months',
+  };
 }
 
 enum StatsRange { day, week, month, year }
 
 extension StatsRangeLabel on StatsRange {
   String get shortLabel => switch (this) {
-        StatsRange.day => '1D',
-        StatsRange.week => '1W',
-        StatsRange.month => '1M',
-        StatsRange.year => '1Y',
-      };
+    StatsRange.day => '1D',
+    StatsRange.week => '1W',
+    StatsRange.month => '1M',
+    StatsRange.year => '1Y',
+  };
 
   String get caption => switch (this) {
-        StatsRange.day => 'Today',
-        StatsRange.week => 'This week',
-        StatsRange.month => 'This month',
-        StatsRange.year => 'This year',
-      };
+    StatsRange.day => 'Today',
+    StatsRange.week => 'This week',
+    StatsRange.month => 'This month',
+    StatsRange.year => 'This year',
+  };
 }
 
 /// Single source of truth for the app, created once at the root and handed
@@ -73,17 +79,19 @@ extension StatsRangeLabel on StatsRange {
 /// ListenableBuilder at the shell root.
 class AppState extends ChangeNotifier {
   AppState(this._persistence)
-      : transactions = _persistence.loadTransactions(),
-        profile = _persistence.loadProfile(),
-        incomeCategories = _persistence.loadIncomeCategories(),
-        expenseCategories = _persistence.loadExpenseCategories(),
-        categoryIcons = _persistence.loadCategoryIcons(),
-        apiConfig = _persistence.loadApiConfig(),
-        conversations = _persistence.loadConversations(),
-        activeConversationId = _determineActiveConversationId(_persistence.loadConversations()),
-        savedAnalyses = _persistence.loadSavedAnalyses(),
-        backupSettings = _persistence.loadBackupSettings(),
-        _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
+    : transactions = _persistence.loadTransactions(),
+      profile = _persistence.loadProfile(),
+      incomeCategories = _persistence.loadIncomeCategories(),
+      expenseCategories = _persistence.loadExpenseCategories(),
+      categoryIcons = _persistence.loadCategoryIcons(),
+      apiConfig = _persistence.loadApiConfig(),
+      conversations = _persistence.loadConversations(),
+      activeConversationId = _determineActiveConversationId(
+        _persistence.loadConversations(),
+      ),
+      savedAnalyses = _persistence.loadSavedAnalyses(),
+      backupSettings = _persistence.loadBackupSettings(),
+      _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
     setAppCurrency(profile.currencyCode);
   }
 
@@ -95,6 +103,7 @@ class AppState extends ChangeNotifier {
   Profile profile;
   List<String> incomeCategories;
   List<String> expenseCategories;
+
   /// Icon keys for custom categories, by name — see [categoryIconKeyFor].
   Map<String, String> categoryIcons;
   ApiConfig apiConfig;
@@ -120,7 +129,9 @@ class AppState extends ChangeNotifier {
   /// only reflects the user-entered key and knows nothing about debug mode.
   bool get hasApiKey => effectiveApiKey.trim().isNotEmpty;
 
-  static String? _determineActiveConversationId(List<Conversation> conversations) {
+  static String? _determineActiveConversationId(
+    List<Conversation> conversations,
+  ) {
     if (conversations.isEmpty) return null;
     Conversation? mostRecent;
     for (final c in conversations) {
@@ -130,7 +141,9 @@ class AppState extends ChangeNotifier {
         final mostRecentTimestamp = mostRecent.messages.isNotEmpty
             ? mostRecent.messages.last.timestamp
             : mostRecent.createdAt;
-        final currentTimestamp = c.messages.isNotEmpty ? c.messages.last.timestamp : c.createdAt;
+        final currentTimestamp = c.messages.isNotEmpty
+            ? c.messages.last.timestamp
+            : c.createdAt;
         if (currentTimestamp.isAfter(mostRecentTimestamp)) {
           mostRecent = c;
         }
@@ -170,7 +183,9 @@ class AppState extends ChangeNotifier {
     final todayStart = DateTime(now.year, now.month, now.day);
     final DateTime periodStart = switch (range) {
       StatsRange.day => todayStart,
-      StatsRange.week => todayStart.subtract(Duration(days: todayStart.weekday - 1)),
+      StatsRange.week => todayStart.subtract(
+        Duration(days: todayStart.weekday - 1),
+      ),
       StatsRange.month => DateTime(now.year, now.month, 1),
       StatsRange.year => DateTime(now.year, 1, 1),
     };
@@ -190,10 +205,16 @@ class AppState extends ChangeNotifier {
   /// Income/expense totals bucketed for the given [range], oldest first.
   /// Day/week buckets are fixed-size; month buckets follow calendar months
   /// so each one reflects a true month regardless of length.
-  List<(DateTime bucketStart, double income, double expense)> cashFlow(CashFlowRange range) {
+  List<(DateTime bucketStart, double income, double expense)> cashFlow(
+    CashFlowRange range,
+  ) {
     switch (range) {
       case CashFlowRange.sevenDays:
-        return _bucketedByDays(rangeStart: _cashFlowStart(range), bucketSizeDays: 1, count: 7);
+        return _bucketedByDays(
+          rangeStart: _cashFlowStart(range),
+          bucketSizeDays: 1,
+          count: 7,
+        );
       case CashFlowRange.sixMonths:
         return _monthlyBuckets(start: _cashFlowStart(range), count: 6);
       case CashFlowRange.twelveMonths:
@@ -243,16 +264,28 @@ class AppState extends ChangeNotifier {
     }
     return [
       for (var i = 0; i < count; i++)
-        (rangeStart.add(Duration(days: bucketSizeDays * i)), income[i], expense[i]),
+        (
+          rangeStart.add(Duration(days: bucketSizeDays * i)),
+          income[i],
+          expense[i],
+        ),
     ];
   }
 
-  List<(DateTime, double, double)> _monthlyBuckets({required DateTime start, required int count}) {
-    final months = List.generate(count, (i) => DateTime(start.year, start.month + i, 1));
+  List<(DateTime, double, double)> _monthlyBuckets({
+    required DateTime start,
+    required int count,
+  }) {
+    final months = List.generate(
+      count,
+      (i) => DateTime(start.year, start.month + i, 1),
+    );
     final income = List<double>.filled(count, 0.0);
     final expense = List<double>.filled(count, 0.0);
     for (final t in transactions) {
-      final idx = months.indexWhere((m) => m.year == t.date.year && m.month == t.date.month);
+      final idx = months.indexWhere(
+        (m) => m.year == t.date.year && m.month == t.date.month,
+      );
       if (idx == -1) continue;
       if (t.type == TransactionType.income) {
         income[idx] += t.amount;
@@ -267,8 +300,14 @@ class AppState extends ChangeNotifier {
   /// of [range.start]'s day (inclusive) through the start of the day AFTER
   /// [range.end]'s day (exclusive), so any transaction dated on range.end's
   /// calendar day is included.
-  (DateTime start, DateTime endExclusive) _normalizedBounds(DateTimeRange range) {
-    final start = DateTime(range.start.year, range.start.month, range.start.day);
+  (DateTime start, DateTime endExclusive) _normalizedBounds(
+    DateTimeRange range,
+  ) {
+    final start = DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+    );
     final endDay = DateTime(range.end.year, range.end.month, range.end.day);
     final endExclusive = endDay.add(const Duration(days: 1));
     return (start, endExclusive);
@@ -321,7 +360,9 @@ class AppState extends ChangeNotifier {
   /// calendar days), oldest first — see [ExportDataCard].
   List<LedgerTransaction> transactionsInRange(DateTimeRange range) {
     final (start, endExclusive) = _normalizedBounds(range);
-    return transactions.where((t) => !t.date.isBefore(start) && t.date.isBefore(endExclusive)).toList()
+    return transactions
+        .where((t) => !t.date.isBefore(start) && t.date.isBefore(endExclusive))
+        .toList()
       ..sort((a, b) => a.date.compareTo(b.date));
   }
 
@@ -329,7 +370,13 @@ class AppState extends ChangeNotifier {
   /// calendar days) — see [ExportDataCard].
   List<SavedAnalysis> savedAnalysesInRange(DateTimeRange range) {
     final (start, endExclusive) = _normalizedBounds(range);
-    return savedAnalyses.where((a) => !a.createdAt.isBefore(start) && a.createdAt.isBefore(endExclusive)).toList();
+    return savedAnalyses
+        .where(
+          (a) =>
+              !a.createdAt.isBefore(start) &&
+              a.createdAt.isBefore(endExclusive),
+        )
+        .toList();
   }
 
   /// Bucketed income/expense series across [range], oldest first. Bucket
@@ -369,7 +416,8 @@ class AppState extends ChangeNotifier {
       }
     }
     return [
-      for (var i = 0; i < count; i++) (start.add(Duration(days: i)), income[i], expense[i]),
+      for (var i = 0; i < count; i++)
+        (start.add(Duration(days: i)), income[i], expense[i]),
     ];
   }
 
@@ -393,7 +441,8 @@ class AppState extends ChangeNotifier {
       }
     }
     return [
-      for (var i = 0; i < count; i++) (start.add(Duration(days: 7 * i)), income[i], expense[i]),
+      for (var i = 0; i < count; i++)
+        (start.add(Duration(days: 7 * i)), income[i], expense[i]),
     ];
   }
 
@@ -403,13 +452,20 @@ class AppState extends ChangeNotifier {
   ) {
     final lastInclusiveDay = endExclusive.subtract(const Duration(days: 1));
     final count =
-        (lastInclusiveDay.year - start.year) * 12 + (lastInclusiveDay.month - start.month) + 1;
-    final months = List.generate(count, (i) => DateTime(start.year, start.month + i, 1));
+        (lastInclusiveDay.year - start.year) * 12 +
+        (lastInclusiveDay.month - start.month) +
+        1;
+    final months = List.generate(
+      count,
+      (i) => DateTime(start.year, start.month + i, 1),
+    );
     final income = List<double>.filled(count, 0.0);
     final expense = List<double>.filled(count, 0.0);
     for (final t in transactions) {
       if (t.date.isBefore(start) || !t.date.isBefore(endExclusive)) continue;
-      final idx = months.indexWhere((m) => m.year == t.date.year && m.month == t.date.month);
+      final idx = months.indexWhere(
+        (m) => m.year == t.date.year && m.month == t.date.month,
+      );
       if (idx == -1) continue;
       if (t.type == TransactionType.income) {
         income[idx] += t.amount;
@@ -451,7 +507,53 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addCategory({required bool isIncome, required String name, required String iconKey}) {
+  /// Saves quiz answers. Any existing generated reflection is retained for
+  /// review but marked stale, so an edit never silently incurs an AI request.
+  void updateSpendingStyle(SpendingStyleProfile style) {
+    final prior = profile.spendingStyle;
+    final answersChanged =
+        prior.ageRange != style.ageRange ||
+        prior.incomeRhythm != style.incomeRhythm ||
+        prior.planningStyle != style.planningStyle ||
+        prior.purchasePause != style.purchasePause ||
+        prior.spendingPressure != style.spendingPressure ||
+        prior.flexibleCategories.join('|') !=
+            style.flexibleCategories.join('|') ||
+        prior.savingApproach != style.savingApproach ||
+        prior.moneyMindset != style.moneyMindset ||
+        prior.guidancePreference != style.guidancePreference ||
+        prior.contextNote != style.contextNote;
+    updateProfile(
+      profile.copyWith(
+        spendingStyle: style.copyWith(
+          completedAt: style.completedAt ?? DateTime.now(),
+          reflectionCurrent: answersChanged ? false : style.reflectionCurrent,
+        ),
+      ),
+    );
+  }
+
+  Future<void> generateSpendingStyleReflection() async {
+    final text = await _openRouter.generateSpendingStyleReflection(
+      apiKey: effectiveApiKey,
+      modelSlug: apiConfig.modelSlug,
+      profile: profile,
+    );
+    updateProfile(
+      profile.copyWith(
+        spendingStyle: profile.spendingStyle.copyWith(
+          reflection: text,
+          reflectionCurrent: true,
+        ),
+      ),
+    );
+  }
+
+  void addCategory({
+    required bool isIncome,
+    required String name,
+    required String iconKey,
+  }) {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
     if (isIncome) {
@@ -509,10 +611,14 @@ class AppState extends ChangeNotifier {
   /// when backup is disabled, not yet due per [BackupSettings.frequency], or
   /// the upload fails (network, not configured, etc.); there's no background
   /// task infrastructure here, so a missed run just gets retried next launch.
+  Future<void> deleteCloudBackup() => cloudBackup.deleteBackup();
+
   Future<void> maybeRunScheduledBackup() async {
     if (!backupSettings.enabled || !cloudBackup.isConfigured) return;
     final last = backupSettings.lastBackupAt;
-    final due = last == null || DateTime.now().difference(last) >= backupSettings.frequency.interval;
+    final due =
+        last == null ||
+        DateTime.now().difference(last) >= backupSettings.frequency.interval;
     if (!due) return;
     try {
       await backUpNow();
@@ -549,7 +655,7 @@ class AppState extends ChangeNotifier {
       }
 
       final newConversation = Conversation(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: IdGenerator.next().toString(),
         title: deriveTitle(message.content),
         createdAt: DateTime.now(),
         messages: [message],
@@ -650,7 +756,9 @@ class AppState extends ChangeNotifier {
     if (_autoAnalysisChecked || !hasApiKey) return;
     _autoAnalysisChecked = true;
     for (final period in AnalysisPeriod.values) {
-      if (!canRequestAnalysis(period) || !meetsActivityThreshold(period)) continue;
+      if (!canRequestAnalysis(period) || !meetsActivityThreshold(period)) {
+        continue;
+      }
       try {
         await requestAnalysis(period);
       } catch (_) {
@@ -700,22 +808,28 @@ class AppState extends ChangeNotifier {
 
     // Derived context fed to the AI prompts, computed once here so each
     // prompt-builder gets plain numbers instead of re-deriving them.
-    final savingsRate = totalIncome > 0 ? (totalIncome - totalExpense) / totalIncome : null;
+    final savingsRate = totalIncome > 0
+        ? (totalIncome - totalExpense) / totalIncome
+        : null;
 
-    final (prevIncome, prevExpense) = totalsForDateRange(_precedingRange(range));
+    final (prevIncome, prevExpense) = totalsForDateRange(
+      _precedingRange(range),
+    );
 
     String? topCategoryName;
     double? topCategoryAmount;
     double? topCategoryPercent;
     if (expenseCats.isNotEmpty && totalExpense > 0) {
-      final sorted = expenseCats.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final sorted = expenseCats.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       topCategoryName = sorted.first.key;
       topCategoryAmount = sorted.first.value;
       topCategoryPercent = sorted.first.value / totalExpense;
     }
 
     double? typicalIncomeForPeriod;
-    if (profile.typicalMonthlyIncome != null && profile.typicalMonthlyIncome! > 0) {
+    if (profile.typicalMonthlyIncome != null &&
+        profile.typicalMonthlyIncome! > 0) {
       final spanDays = range.end.difference(range.start).inDays + 1;
       typicalIncomeForPeriod = profile.typicalMonthlyIncome! / 30 * spanDays;
     }
@@ -725,13 +839,14 @@ class AppState extends ChangeNotifier {
     // analysis is inserted, since savedAnalyses is newest-first.
     SavedAnalysis? previousAnalysis;
     for (final a in savedAnalyses) {
-      if (a.period == period && a.overallStatus == AnalysisAnswerStatus.loaded) {
+      if (a.period == period &&
+          a.overallStatus == AnalysisAnswerStatus.loaded) {
         previousAnalysis = a;
         break;
       }
     }
 
-    final id = now.millisecondsSinceEpoch.toString();
+    final id = IdGenerator.next().toString();
 
     // Keep at most two OpenRouter requests in flight. Free-model providers
     // have limited capacity, and launching all four sections together makes
@@ -849,7 +964,9 @@ class AppState extends ChangeNotifier {
       );
       return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
-      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      final message = e is OpenRouterException
+          ? e.message
+          : 'Could not load this section.';
       return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
@@ -876,7 +993,9 @@ class AppState extends ChangeNotifier {
       );
       return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
-      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      final message = e is OpenRouterException
+          ? e.message
+          : 'Could not load this section.';
       return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
@@ -917,7 +1036,9 @@ class AppState extends ChangeNotifier {
       );
       return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
-      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      final message = e is OpenRouterException
+          ? e.message
+          : 'Could not load this section.';
       return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }
@@ -952,7 +1073,9 @@ class AppState extends ChangeNotifier {
       );
       return (text: text, status: AnalysisAnswerStatus.loaded, error: null);
     } catch (e) {
-      final message = e is OpenRouterException ? e.message : 'Could not load this section.';
+      final message = e is OpenRouterException
+          ? e.message
+          : 'Could not load this section.';
       return (text: null, status: AnalysisAnswerStatus.error, error: message);
     }
   }

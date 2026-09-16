@@ -5,6 +5,7 @@ import '../models/category.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
+import '../services/id_generator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
@@ -84,7 +85,7 @@ class _TransactionFormSheetState extends State<TransactionFormSheet> {
     } else {
       widget.appState.addTransaction(
         LedgerTransaction(
-          id: DateTime.now().millisecondsSinceEpoch,
+          id: IdGenerator.next(),
           merchant: merchant,
           category: _category,
           date: DateTime.now(),

@@ -91,7 +91,23 @@ class CloudBackupService {
     if (snapshot == null) {
       throw CloudBackupException('No backup found for this account yet.');
     }
-    await persistence.restoreBackupSnapshot(snapshot);
+    try {
+      await persistence.restoreBackupSnapshot(snapshot);
+    } on FormatException {
+      throw CloudBackupException('This backup is invalid or from an unsupported app version.');
+    } on TypeError {
+      throw CloudBackupException('This backup is malformed and was not restored.');
+    }
+  }
+
+  /// Deletes this account's remote snapshot. It does not delete the auth session.
+  Future<void> deleteBackup() async {
+    await _ensureSession();
+    try {
+      await _client.from(_table).delete().eq('user_id', _client.auth.currentUser!.id);
+    } on PostgrestException catch (e) {
+      throw CloudBackupException(e.message);
+    }
   }
 
   /// Step 1 of linking: sends a 6-digit code to [email]. If the current

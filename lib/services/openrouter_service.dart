@@ -9,7 +9,7 @@ import '../models/transaction.dart';
 import 'formatters.dart';
 import 'prompt_loader.dart';
 
-enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, emptyResponse, unknown }
+enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, emptyResponse, incompatibleResponse, unknown }
 
 class OpenRouterException implements Exception {
   OpenRouterException(this.message, {this.kind = OpenRouterErrorKind.unknown});
@@ -44,8 +44,13 @@ class OpenRouterService {
       _delay = delay ?? ((duration) => Future<void>.delayed(duration));
 
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+  static const _requestTimeout = Duration(seconds: 30);
   static const _transactionTag = 'arkad_transaction';
   static const _retryDelays = [Duration(milliseconds: 400), Duration(milliseconds: 1200)];
+  static final _safetyClassifierResponse = RegExp(
+    r'^\s*User Safety:\s*(?:safe|unsafe)(?:\s+Response Safety:\s*(?:safe|unsafe))?(?:\s+Safety Categories:\s*[^\r\n]+)?\s*$',
+    caseSensitive: false,
+  );
 
   final http.Client _client;
   final Future<void> Function(Duration) _delay;
@@ -79,6 +84,36 @@ class OpenRouterService {
 
     final content = await _requestCompletionText(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
     return _parseReply(content);
+  }
+
+  /// Creates the optional narrative shown after the spending-style quiz. This
+  /// deliberately uses self-reported answers and goals only, rather than
+  /// pretending the result is a ledger-derived assessment.
+  Future<String> generateSpendingStyleReflection({
+    required String apiKey,
+    required String modelSlug,
+    required Profile profile,
+  }) async {
+    if (apiKey.trim().isEmpty) {
+      throw OpenRouterException('Add an OpenRouter API key in Settings to generate a reflection.');
+    }
+    final preferences = profile.spendingStyle.toPromptBlock();
+    if (preferences.isEmpty) {
+      throw OpenRouterException('Complete the spending-style quiz before generating a reflection.');
+    }
+    final goal = profile.goalSummary.trim();
+    final prompt = '''You are Arkad, a warm and practical financial companion.
+
+$preferences
+${goal.isEmpty ? '' : 'Financial goal: $goal\n'}
+Write a short reflection in exactly two paragraphs. Summarize the preferences the person shared and say how Arkad can tailor its guidance. Do not assign a personality type, diagnose behavior, claim anything about their actual spending, or give a budget target. Treat every answer as self-reported context, not evidence. Return only the reflection.''';
+    return _requestCompletionText(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: [
+        {'role': 'system', 'content': prompt},
+      ],
+    );
   }
 
   /// One-shot, non-chat analysis of a time-ranged view of the user's finances.
@@ -376,8 +411,9 @@ class OpenRouterService {
 
   /// Requests a non-streaming completion and retries failures that can be
   /// caused by a temporarily unavailable provider. The free-model router may
-  /// select a different provider on each attempt, so retrying an empty 200
-  /// response is useful as well as retrying rate limits and server failures.
+  /// select a different model on each attempt, so retrying an empty or
+  /// incompatible 200 response is useful as well as retrying rate limits and
+  /// server failures.
   Future<String> _requestCompletionText({
     required String apiKey,
     required String modelSlug,
@@ -408,11 +444,23 @@ class OpenRouterService {
     if (content is! String || content.trim().isEmpty) {
       throw OpenRouterException('OpenRouter returned an empty response.', kind: OpenRouterErrorKind.emptyResponse);
     }
-    return content.trim();
+    final trimmed = content.trim();
+    // `openrouter/free` can route to a content-safety classifier. Its fixed
+    // `User Safety:` response is not an assistant answer, even though it is a
+    // successful, non-empty completion. Reject it so the router can retry
+    // with another free model instead of displaying the classification.
+    if (_safetyClassifierResponse.hasMatch(trimmed)) {
+      throw OpenRouterException(
+        'OpenRouter selected a model that returned a safety classification instead of an answer.',
+        kind: OpenRouterErrorKind.incompatibleResponse,
+      );
+    }
+    return trimmed;
   }
 
   bool _isRetryable(OpenRouterErrorKind kind) =>
       kind == OpenRouterErrorKind.emptyResponse ||
+      kind == OpenRouterErrorKind.incompatibleResponse ||
       kind == OpenRouterErrorKind.rateLimited ||
       kind == OpenRouterErrorKind.network ||
       kind == OpenRouterErrorKind.server;
@@ -436,7 +484,7 @@ class OpenRouterService {
           'X-Title': 'Arkad',
         },
         body: jsonEncode({'model': modelSlug, 'messages': messages}),
-      );
+      ).timeout(_requestTimeout);
     } catch (_) {
       throw OpenRouterException(
         'Could not reach OpenRouter. Check your connection.',
@@ -495,12 +543,16 @@ class OpenRouterService {
         final type = (map['type'] as String).toLowerCase() == 'income'
             ? TransactionType.income
             : TransactionType.expense;
+        final amount = (map['amount'] as num).toDouble();
+        final merchant = (map['merchant'] as String).trim();
+        final category = (map['category'] as String).trim();
+        if (!amount.isFinite || amount <= 0 || merchant.isEmpty || category.isEmpty) continue;
         transactions.add(LedgerTransaction(
           id: baseId + i,
-          merchant: map['merchant'] as String,
-          category: map['category'] as String,
+          merchant: merchant,
+          category: category,
           date: DateTime.now(),
-          amount: (map['amount'] as num).toDouble(),
+          amount: amount,
           type: type,
         ));
       } catch (_) {
@@ -588,9 +640,13 @@ class OpenRouterService {
       final formatted = formatCurrency(profile.savingsGoalAmount!);
       parts.add('Savings Goal: $formatted');
     }
+    final spendingStyle = profile.spendingStyle.toPromptBlock();
+    if (spendingStyle.isNotEmpty) {
+      parts.add(spendingStyle.trimRight());
+    }
 
     if (parts.isEmpty) return '';
-    return 'About the user:\n${parts.map((p) => '- $p').join('\n')}\n';
+    return 'About the user:\n${parts.map((p) => p.contains('\n') ? p : '- $p').join('\n')}\n';
   }
 
   /// Surfaces the most recent same-period-type analysis's overall assessment

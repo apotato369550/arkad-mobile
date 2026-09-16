@@ -82,6 +82,18 @@ class _CloudBackupCardState extends State<CloudBackupCard> {
     }
   }
 
+  Future<void> _deleteBackup() async {
+    setState(() => _busy = true);
+    try {
+      await widget.appState.deleteCloudBackup();
+      _setStatus('Cloud backup deleted');
+    } on CloudBackupException catch (e) {
+      _setStatus(e.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _sendCode() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) return;
@@ -171,6 +183,11 @@ class _CloudBackupCardState extends State<CloudBackupCard> {
             'Automatically back up your data so it survives a lost or reset device.',
             style: AppTextStyles.metadata(),
           ),
+          const SizedBox(height: 6),
+          Text(
+            'Enabling this uploads your full ledger, profile, chats, and saved analyses to Supabase. It is not end-to-end encrypted.',
+            style: AppTextStyles.metadata(color: AppColors.ink60),
+          ),
           if (settings.enabled) ...[
             const SizedBox(height: 16),
             Text('Frequency', style: AppTextStyles.metadata()),
@@ -215,6 +232,13 @@ class _CloudBackupCardState extends State<CloudBackupCard> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: _busy ? null : _deleteBackup,
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Delete cloud backup'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.clay),
             ),
             const SizedBox(height: 20),
             Container(

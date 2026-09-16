@@ -328,52 +328,35 @@ class PersistenceService {
   /// style of the rest of this class — a partially-decodable snapshot
   /// restores what it can rather than failing closed.
   Future<void> restoreBackupSnapshot(Map<String, dynamic> snapshot) async {
-    try {
-      final rawTransactions = snapshot['transactions'] as List<dynamic>?;
-      if (rawTransactions != null) {
-        await saveTransactions(
-          rawTransactions.map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>)).toList(),
-        );
-      }
-    } catch (_) {}
+    if (snapshot['version'] != _backupSnapshotVersion) {
+      throw const FormatException('Unsupported backup version.');
+    }
+    // Decode every required field before writing. A corrupt cloud payload must
+    // never leave a mixture of old and newly-restored local state.
+    final transactions = (snapshot['transactions'] as List<dynamic>)
+        .map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final profile = Profile.fromJson(snapshot['profile'] as Map<String, dynamic>);
+    final income = (snapshot['incomeCategories'] as List<dynamic>).cast<String>();
+    final expense = (snapshot['expenseCategories'] as List<dynamic>).cast<String>();
+    final icons = (snapshot['categoryIcons'] as Map<String, dynamic>)
+        .map((k, v) => MapEntry(k, v as String));
+    final conversations = (snapshot['conversations'] as List<dynamic>)
+        .map((e) => Conversation.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final analyses = (snapshot['savedAnalyses'] as List<dynamic>)
+        .map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>))
+        .toList();
 
-    try {
-      final rawProfile = snapshot['profile'] as Map<String, dynamic>?;
-      if (rawProfile != null) await saveProfile(Profile.fromJson(rawProfile));
-    } catch (_) {}
-
-    try {
-      final rawIncome = snapshot['incomeCategories'] as List<dynamic>?;
-      if (rawIncome != null) await saveIncomeCategories(rawIncome.cast<String>());
-    } catch (_) {}
-
-    try {
-      final rawExpense = snapshot['expenseCategories'] as List<dynamic>?;
-      if (rawExpense != null) await saveExpenseCategories(rawExpense.cast<String>());
-    } catch (_) {}
-
-    try {
-      final rawIcons = snapshot['categoryIcons'] as Map<String, dynamic>?;
-      if (rawIcons != null) await saveCategoryIcons(rawIcons.map((k, v) => MapEntry(k, v as String)));
-    } catch (_) {}
-
-    try {
-      final rawConversations = snapshot['conversations'] as List<dynamic>?;
-      if (rawConversations != null) {
-        await saveConversations(
-          rawConversations.map((e) => Conversation.fromJson(e as Map<String, dynamic>)).toList(),
-        );
-      }
-    } catch (_) {}
-
-    try {
-      final rawAnalyses = snapshot['savedAnalyses'] as List<dynamic>?;
-      if (rawAnalyses != null) {
-        await saveSavedAnalyses(
-          rawAnalyses.map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>)).toList(),
-        );
-      }
-    } catch (_) {}
+    await Future.wait([
+      saveTransactions(transactions),
+      saveProfile(profile),
+      saveIncomeCategories(income),
+      saveExpenseCategories(expense),
+      saveCategoryIcons(icons),
+      saveConversations(conversations),
+      saveSavedAnalyses(analyses),
+    ]);
   }
 
   Future<void> clearAll() async {

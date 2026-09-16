@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/app_shell.dart';
 import 'screens/onboarding/onboarding_screen.dart';
@@ -13,11 +12,6 @@ import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Guarded: a missing/malformed .env must never block startup — it only
-  // ever supplies the optional debug-mode API key (see AppConfig).
-  try {
-    await dotenv.load(fileName: '.env');
-  } catch (_) {}
   // Cloud backup is opt-in infrastructure: a build with no Supabase project
   // configured (fresh checkout, CI, etc.) just runs with the feature
   // unavailable rather than failing to start.

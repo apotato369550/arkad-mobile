@@ -5,6 +5,7 @@ import '../models/chat_message.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
+import '../services/id_generator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
@@ -37,7 +38,7 @@ Future<void> showProposedTransactionsSheet(
   final label = 'Arkad added $addedCount transaction${addedCount == 1 ? '' : 's'}.';
   messenger.showSnackBar(SnackBar(content: Text(label)));
   appState.addChatMessage(ChatMessage(
-    id: DateTime.now().millisecondsSinceEpoch,
+    id: IdGenerator.next(),
     role: ChatRole.assistant,
     content: 'Arkad added $addedCount transaction${addedCount == 1 ? '' : 's'} to your ledger.',
     timestamp: DateTime.now(),

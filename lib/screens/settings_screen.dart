@@ -78,7 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.modal)),
         title: Text('Clear all data?', style: AppTextStyles.cardHeading()),
         content: Text(
-          'This permanently deletes your transactions, categories, profile, and chat history from this device.',
+          'This permanently deletes your transactions, categories, profile, and chat history from this device. It does not delete a cloud backup.',
           style: AppTextStyles.body(),
         ),
         actions: [
@@ -115,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Your key stays on this device and is sent directly to OpenRouter — never to Arkad.',
+                'Your key stays on this device and is sent directly to OpenRouter — never to Arkad. AI requests send relevant ledger, profile, and chat data to OpenRouter.',
                 style: AppTextStyles.metadata(),
               ),
               const SizedBox(height: 16),

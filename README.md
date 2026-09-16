@@ -2,7 +2,7 @@
 
 A personal finance tracker, built with Flutter. You manage a transaction ledger by hand or by talking to an AI agent in plain language, and get AI-written spending analyses on top of it. No backend of its own — persistence is on-device, and AI calls go straight from the app to OpenRouter.
 
-See [`IDEA.md`](IDEA.md) for the original product concept and [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for the "ledger in the garden" design system (colors, type, shape language, component specs).
+See [`QUICKSTART.md`](QUICKSTART.md) to run a local debug build, [`IDEA.md`](IDEA.md) for the original product concept, and [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for the design system.
 
 ## Features
 
@@ -17,23 +17,22 @@ See [`IDEA.md`](IDEA.md) for the original product concept and [`STYLE_GUIDE.md`]
 
 ## AI integration (BYOK)
 
-The app never ships its own OpenRouter key. Each user supplies their own key in Settings; it's stored in secure storage on-device and sent directly from the app to OpenRouter — never to any Arkad-run server. Without a key configured, AI features explain that clearly and point to Settings rather than failing silently.
+The app never ships an OpenRouter key in a release build. Users can supply a
+key in Settings; it is stored in secure storage on-device and sent directly to
+OpenRouter, never to an Arkad-run server. AI requests send relevant ledger,
+profile, and chat context to OpenRouter.
 
-For local development, you can drop a debug-only key in `.env` (never committed) so you don't have to configure Settings on every run:
-
-```
-DEBUG_MODE=true
-OPENROUTER_DEBUG_API_KEY=sk-or-...
-```
-
-This only takes effect in debug builds (see `lib/services/app_config.dart`).
+For local testing with your own key, follow [QUICKSTART.md](QUICKSTART.md).
+It uses an ignored `.env` file and `./scripts/run_debug.sh`, so you do not need
+to enter the key manually after each debug install. Never share a debug APK
+built with that key.
 
 ## Stack
 
 - Flutter (Dart SDK `^3.12.2`), Material.
 - `google_fonts` (Fraunces, Manrope, DM Mono per the style guide), `fl_chart` for charts, `flutter_markdown` for rendered analysis text.
 - `shared_preferences` for versioned local data, `flutter_secure_storage` for the API key.
-- `http` + `flutter_dotenv` for the OpenRouter integration and local debug config.
+- `http` for the OpenRouter integration; Dart defines for local debug configuration.
 - `pdf` + `printing` for PDF export.
 
 No backend, no accounts, no sync — everything lives on-device.
@@ -51,10 +50,13 @@ lib/
 
 ## Getting started
 
-```
+```bash
 flutter pub get
 flutter run
 ```
+
+For a debug build that uses a local OpenRouter key automatically, use the
+[debug quickstart](QUICKSTART.md).
 
 To regenerate app icons/splash after changing `assets/icon/*` (config lives in `pubspec.yaml` under `flutter_launcher_icons` / `flutter_native_splash`):
 
@@ -65,4 +67,4 @@ flutter pub run flutter_native_splash:create
 
 ## Status
 
-Personal/hobby-scale project — no backend, no test suite, no multi-user concerns. Frontend and aesthetics are the current focus; the OpenRouter integration is real (not mocked).
+Personal/hobby-scale project with local persistence, optional Supabase backup, and a focused Flutter test suite. The OpenRouter integration is real (not mocked).

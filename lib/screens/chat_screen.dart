@@ -3,6 +3,7 @@ import '../models/chat_message.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/openrouter_service.dart';
+import '../services/id_generator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
@@ -52,7 +53,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty || _sending) return;
 
     widget.appState.addChatMessage(ChatMessage(
-      id: DateTime.now().millisecondsSinceEpoch,
+      id: IdGenerator.next(),
       role: ChatRole.user,
       content: text,
       timestamp: DateTime.now(),
@@ -86,7 +87,7 @@ class _ChatScreenState extends State<ChatScreen> {
         profile: appState.profile,
       );
       appState.addChatMessage(ChatMessage(
-        id: DateTime.now().millisecondsSinceEpoch + 1,
+        id: IdGenerator.next(),
         role: ChatRole.assistant,
         content: reply.text,
         timestamp: DateTime.now(),

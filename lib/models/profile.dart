@@ -1,3 +1,5 @@
+import 'spending_style_profile.dart';
+
 /// "What do you plan to achieve with Arkad" choices offered in onboarding
 /// and the Profile tab. Selecting the last option reveals a free-text field
 /// captured in [Profile.goalOther].
@@ -21,6 +23,7 @@ class Profile {
     this.longTermGoal = '',
     this.typicalMonthlyIncome,
     this.savingsGoalAmount,
+    this.spendingStyle = const SpendingStyleProfile(),
     this.onboardingComplete = false,
   });
 
@@ -35,12 +38,15 @@ class Profile {
   final String longTermGoal;
   final double? typicalMonthlyIncome;
   final double? savingsGoalAmount;
+  final SpendingStyleProfile spendingStyle;
   final bool onboardingComplete;
 
   /// The goal text worth surfacing to the user: the custom "Other" entry when
   /// given, otherwise the selected goal type, otherwise the freeform detail.
   String get goalSummary {
-    if (goalType == 'Other' && goalOther.trim().isNotEmpty) return goalOther.trim();
+    if (goalType == 'Other' && goalOther.trim().isNotEmpty) {
+      return goalOther.trim();
+    }
     if (goalType.isNotEmpty) return goalType;
     return longTermGoal;
   }
@@ -59,6 +65,7 @@ class Profile {
     bool clearTypicalMonthlyIncome = false,
     double? savingsGoalAmount,
     bool clearSavingsGoalAmount = false,
+    SpendingStyleProfile? spendingStyle,
     bool? onboardingComplete,
   }) {
     return Profile(
@@ -71,10 +78,13 @@ class Profile {
       goalType: goalType ?? this.goalType,
       goalOther: goalOther ?? this.goalOther,
       longTermGoal: longTermGoal ?? this.longTermGoal,
-      typicalMonthlyIncome:
-          clearTypicalMonthlyIncome ? null : (typicalMonthlyIncome ?? this.typicalMonthlyIncome),
-      savingsGoalAmount:
-          clearSavingsGoalAmount ? null : (savingsGoalAmount ?? this.savingsGoalAmount),
+      typicalMonthlyIncome: clearTypicalMonthlyIncome
+          ? null
+          : (typicalMonthlyIncome ?? this.typicalMonthlyIncome),
+      savingsGoalAmount: clearSavingsGoalAmount
+          ? null
+          : (savingsGoalAmount ?? this.savingsGoalAmount),
+      spendingStyle: spendingStyle ?? this.spendingStyle,
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
     );
   }
@@ -92,22 +102,26 @@ class Profile {
       longTermGoal: json['longTermGoal'] as String? ?? '',
       typicalMonthlyIncome: (json['typicalMonthlyIncome'] as num?)?.toDouble(),
       savingsGoalAmount: (json['savingsGoalAmount'] as num?)?.toDouble(),
+      spendingStyle: SpendingStyleProfile.fromJson(
+        json['spendingStyle'] as Map<String, dynamic>?,
+      ),
       onboardingComplete: json['onboardingComplete'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'displayName': displayName,
-        'email': email,
-        'countryCode': countryCode,
-        'currencyCode': currencyCode,
-        'jobTitle': jobTitle,
-        'occupationField': occupationField,
-        'goalType': goalType,
-        'goalOther': goalOther,
-        'longTermGoal': longTermGoal,
-        'typicalMonthlyIncome': typicalMonthlyIncome,
-        'savingsGoalAmount': savingsGoalAmount,
-        'onboardingComplete': onboardingComplete,
-      };
+    'displayName': displayName,
+    'email': email,
+    'countryCode': countryCode,
+    'currencyCode': currencyCode,
+    'jobTitle': jobTitle,
+    'occupationField': occupationField,
+    'goalType': goalType,
+    'goalOther': goalOther,
+    'longTermGoal': longTermGoal,
+    'typicalMonthlyIncome': typicalMonthlyIncome,
+    'savingsGoalAmount': savingsGoalAmount,
+    'spendingStyle': spendingStyle.toJson(),
+    'onboardingComplete': onboardingComplete,
+  };
 }

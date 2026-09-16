@@ -181,6 +181,36 @@ You spent \$52 across those two purchases.
       expect(calls, 2);
     });
 
+    test('retries a content-safety classification response', () async {
+      var calls = 0;
+      final service = OpenRouterService(
+        client: MockClient((_) async {
+          calls++;
+          return calls == 1 ? completion('User Safety: safe') : completion('Set a weekly dining budget.');
+        }),
+        delay: (_) async {},
+      );
+
+      expect(await analyzeWith(service), 'Set a weekly dining budget.');
+      expect(calls, 2);
+    });
+
+    test('retries a content-safety classification with categories', () async {
+      var calls = 0;
+      final service = OpenRouterService(
+        client: MockClient((_) async {
+          calls++;
+          return calls == 1
+              ? completion('User Safety: unsafe\nSafety Categories: Violence and Criminal Activities')
+              : completion('Review the largest expense category first.');
+        }),
+        delay: (_) async {},
+      );
+
+      expect(await analyzeWith(service), 'Review the largest expense category first.');
+      expect(calls, 2);
+    });
+
     test('retries rate limits and server failures', () async {
       var calls = 0;
       final service = OpenRouterService(
@@ -232,6 +262,31 @@ You spent \$52 across those two purchases.
           isA<OpenRouterException>()
               .having((error) => error.kind, 'kind', OpenRouterErrorKind.emptyResponse)
               .having((error) => error.message, 'message', 'OpenRouter returned an empty response.'),
+        ),
+      );
+      expect(calls, 3);
+    });
+
+    test('reports an incompatible response after exhausting retries', () async {
+      var calls = 0;
+      final service = OpenRouterService(
+        client: MockClient((_) async {
+          calls++;
+          return completion('User Safety: unsafe\nSafety Categories: Violence and Criminal Activities');
+        }),
+        delay: (_) async {},
+      );
+
+      await expectLater(
+        analyzeWith(service),
+        throwsA(
+          isA<OpenRouterException>()
+              .having((error) => error.kind, 'kind', OpenRouterErrorKind.incompatibleResponse)
+              .having(
+                (error) => error.message,
+                'message',
+                'OpenRouter selected a model that returned a safety classification instead of an answer.',
+              ),
         ),
       );
       expect(calls, 3);

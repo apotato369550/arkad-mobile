@@ -43,7 +43,6 @@ dependencies:
   markdown: ^7.3.1
   url_launcher: ^6.3.2
   fl_chart: ^0.69.0
-  flutter_dotenv: ^5.2.1
   pdf: ^3.11.1
   printing: ^5.13.4
   supabase_flutter: ^2.17.2
@@ -80,7 +79,6 @@ flutter:
     - assets/extracted/arkad_face_transparent.png
     - assets/fonts/NotoSans-Variable.ttf
     - assets/prompts/
-    - .env
 
   # To add assets to your application, add an assets section, like this:
   # assets:
