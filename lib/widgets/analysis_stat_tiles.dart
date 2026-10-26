@@ -140,7 +140,11 @@ class NetStatTile extends StatelessWidget {
             color: amount >= 0 ? AppColors.darkGreen : AppColors.clay,
           ),
           const SizedBox(height: 16),
-          Text('Net', style: AppTextStyles.metadata()),
+          Row(children: [
+            Expanded(child: Text('Net', style: AppTextStyles.metadata())),
+            Tooltip(message: 'Tap for details',
+              child: Icon(Icons.info_outline, size: 17, color: AppColors.ink60)),
+          ]),
           const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -182,7 +186,11 @@ class AverageStatTile extends StatelessWidget {
             color: AppColors.sage,
           ),
           const SizedBox(height: 16),
-          Text('Daily avg', style: AppTextStyles.metadata()),
+          Row(children: [
+            Expanded(child: Text('Daily avg', style: AppTextStyles.metadata())),
+            Tooltip(message: 'Tap for details',
+              child: Icon(Icons.info_outline, size: 17, color: AppColors.ink60)),
+          ]),
           const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -229,7 +237,11 @@ class DeltaStatTile extends StatelessWidget {
             height: 40,
           ),
           const SizedBox(height: 16),
-          Text('vs. prior', style: AppTextStyles.metadata()),
+          Row(children: [
+            Expanded(child: Text('vs. prior', style: AppTextStyles.metadata())),
+            Tooltip(message: 'Tap for details',
+              child: Icon(Icons.info_outline, size: 17, color: AppColors.ink60)),
+          ]),
           const SizedBox(height: 6),
           FittedBox(
             fit: BoxFit.scaleDown,

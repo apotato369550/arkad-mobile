@@ -76,11 +76,11 @@ class ProfileScreen extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => SpendingStyleQuizScreen(appState: appState),
+                  builder: (_) => SpendingStyleQuizScreen(appState: appState, showResultInitially: profile.spendingStyle.isComplete),
                 ),
               ),
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit spending style'),
+              icon: const Icon(Icons.assignment_outlined),
+              label: const Text('View results'),
             ),
           ),
           const SizedBox(height: 20),
@@ -90,7 +90,7 @@ class ProfileScreen extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => SpendingStyleQuizScreen(appState: appState),
+                  builder: (_) => SpendingStyleQuizScreen(appState: appState, showResultInitially: profile.spendingStyle.isComplete),
                 ),
               ),
               icon: const Icon(Icons.auto_awesome),

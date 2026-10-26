@@ -4,12 +4,21 @@ import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/countries.dart';
 import '../models/profile.dart';
+import '../models/spending_style_profile.dart';
 import '../models/saved_analysis.dart';
 import '../models/transaction.dart';
 import 'formatters.dart';
 import 'prompt_loader.dart';
 
-enum OpenRouterErrorKind { invalidKey, rateLimited, network, server, emptyResponse, incompatibleResponse, unknown }
+enum OpenRouterErrorKind {
+  invalidKey,
+  rateLimited,
+  network,
+  server,
+  emptyResponse,
+  incompatibleResponse,
+  unknown,
+}
 
 class OpenRouterException implements Exception {
   OpenRouterException(this.message, {this.kind = OpenRouterErrorKind.unknown});
@@ -39,14 +48,19 @@ class AgentReply {
 /// See IDEA.md: "All calls are made directly from the browser to OpenRouter,
 /// no proxy server" — mirrored here as direct client calls from the app.
 class OpenRouterService {
-  OpenRouterService({http.Client? client, Future<void> Function(Duration)? delay})
-    : _client = client ?? http.Client(),
-      _delay = delay ?? ((duration) => Future<void>.delayed(duration));
+  OpenRouterService({
+    http.Client? client,
+    Future<void> Function(Duration)? delay,
+  }) : _client = client ?? http.Client(),
+       _delay = delay ?? ((duration) => Future<void>.delayed(duration));
 
   static const _endpoint = 'https://openrouter.ai/api/v1/chat/completions';
   static const _requestTimeout = Duration(seconds: 30);
   static const _transactionTag = 'arkad_transaction';
-  static const _retryDelays = [Duration(milliseconds: 400), Duration(milliseconds: 1200)];
+  static const _retryDelays = [
+    Duration(milliseconds: 400),
+    Duration(milliseconds: 1200),
+  ];
   static final _safetyClassifierResponse = RegExp(
     r'^\s*User Safety:\s*(?:safe|unsafe)(?:\s+Response Safety:\s*(?:safe|unsafe))?(?:\s+Safety Categories:\s*[^\r\n]+)?\s*$',
     caseSensitive: false,
@@ -79,39 +93,52 @@ class OpenRouterService {
     final messages = [
       {'role': 'system', 'content': systemPrompt},
       for (final m in history)
-        {'role': m.role == ChatRole.user ? 'user' : 'assistant', 'content': m.content},
+        {
+          'role': m.role == ChatRole.user ? 'user' : 'assistant',
+          'content': m.content,
+        },
     ];
 
-    final content = await _requestCompletionText(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
+    final content = await _requestCompletionText(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: messages,
+    );
     return _parseReply(content);
   }
 
-  /// Creates the optional narrative shown after the spending-style quiz. This
-  /// deliberately uses self-reported answers and goals only, rather than
-  /// pretending the result is a ledger-derived assessment.
-  Future<String> generateSpendingStyleReflection({
+  /// Generates one independently cached quiz synthesis from self-reported answers.
+  Future<String> generateSpendingStyleSection({
     required String apiKey,
     required String modelSlug,
     required Profile profile,
+    required SpendingStyleSection section,
   }) async {
     if (apiKey.trim().isEmpty) {
-      throw OpenRouterException('Add an OpenRouter API key in Settings to generate a reflection.');
+      throw OpenRouterException(
+        'Add an OpenRouter API key in Settings to generate your profile.',
+      );
     }
-    final preferences = profile.spendingStyle.toPromptBlock();
-    if (preferences.isEmpty) {
-      throw OpenRouterException('Complete the spending-style quiz before generating a reflection.');
+    if (!profile.spendingStyle.isComplete) {
+      throw OpenRouterException('Complete the spending-style quiz first.');
     }
-    final goal = profile.goalSummary.trim();
-    final prompt = '''You are Arkad, a warm and practical financial companion.
-
-$preferences
-${goal.isEmpty ? '' : 'Financial goal: $goal\n'}
-Write a short reflection in exactly two paragraphs. Summarize the preferences the person shared and say how Arkad can tailor its guidance. Do not assign a personality type, diagnose behavior, claim anything about their actual spending, or give a budget target. Treat every answer as self-reported context, not evidence. Return only the reflection.''';
+    final system = await loadPromptTemplate(
+      section == SpendingStyleSection.assessment
+          ? 'spending_style_assessment'
+          : 'spending_style_guidance',
+    );
+    final input = jsonEncode({
+      'selfReportedAnswers': profile.spendingStyle.toPromptBlock(
+        includeSynthesis: false,
+      ),
+      'financialGoal': profile.goalSummary,
+    });
     return _requestCompletionText(
       apiKey: apiKey,
       modelSlug: modelSlug,
       messages: [
-        {'role': 'system', 'content': prompt},
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': input},
       ],
     );
   }
@@ -148,7 +175,11 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       {'role': 'system', 'content': systemPrompt},
     ];
 
-    return _requestCompletionText(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
+    return _requestCompletionText(
+      apiKey: apiKey,
+      modelSlug: modelSlug,
+      messages: messages,
+    );
   }
 
   /// One-shot question: how purposeful the user's spending was this period —
@@ -176,7 +207,9 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
 
     final derivedLines = StringBuffer();
     if (savingsRate != null) {
-      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+      derivedLines.writeln(
+        'Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%',
+      );
     }
     if (typicalMonthlyIncomeForPeriod != null) {
       derivedLines.writeln(
@@ -194,7 +227,9 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       'net': formatCurrency(net),
       'context_block':
           '${derivedLines.isEmpty ? '' : '$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
-      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+      'response_style': await renderPrompt('response_style', {
+        'transaction_tag': _transactionTag,
+      }),
     });
 
     return _requestCompletionText(
@@ -229,24 +264,32 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
     final profileLines = _buildProfileSection(profile);
 
     final derivedLines = StringBuffer();
-    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+    if (topCategoryName != null &&
+        topCategoryAmount != null &&
+        topCategoryPercent != null) {
       derivedLines.writeln(
         'Largest category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
         '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
       );
     }
     if (previousPeriodExpense != null) {
-      derivedLines.writeln('Previous period\'s total expenses: ${formatCurrency(previousPeriodExpense)}');
+      derivedLines.writeln(
+        'Previous period\'s total expenses: ${formatCurrency(previousPeriodExpense)}',
+      );
     }
 
     final prompt = await renderPrompt('analysis_cost_cutting', {
       'persona': await loadPromptTemplate('persona'),
       'period_start': formatDate(range.start),
       'period_end': formatDate(range.end),
-      'category_lines': categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines,
+      'category_lines': categoryLines.isEmpty
+          ? '(no expenses in this period)'
+          : categoryLines,
       'context_block':
           '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}',
-      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+      'response_style': await renderPrompt('response_style', {
+        'transaction_tag': _transactionTag,
+      }),
     });
 
     return _requestCompletionText(
@@ -294,18 +337,26 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
 
     final derivedLines = StringBuffer();
     if (savingsRate != null) {
-      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+      derivedLines.writeln(
+        'Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%',
+      );
     }
     if (previousPeriodIncome != null || previousPeriodExpense != null) {
       derivedLines.writeln('Previous period for comparison:');
       if (previousPeriodIncome != null) {
-        derivedLines.writeln('- Income: ${formatCurrency(previousPeriodIncome)}');
+        derivedLines.writeln(
+          '- Income: ${formatCurrency(previousPeriodIncome)}',
+        );
       }
       if (previousPeriodExpense != null) {
-        derivedLines.writeln('- Expenses: ${formatCurrency(previousPeriodExpense)}');
+        derivedLines.writeln(
+          '- Expenses: ${formatCurrency(previousPeriodExpense)}',
+        );
       }
     }
-    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+    if (topCategoryName != null &&
+        topCategoryAmount != null &&
+        topCategoryPercent != null) {
       derivedLines.writeln(
         'Largest expense category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
         '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
@@ -325,11 +376,17 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       'total_income': formatCurrency(totalIncome),
       'total_expense': formatCurrency(totalExpense),
       'net': formatCurrency(net),
-      'income_lines': incomeLines.isEmpty ? '(no income in this period)' : incomeLines,
-      'expense_lines': expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines,
+      'income_lines': incomeLines.isEmpty
+          ? '(no income in this period)'
+          : incomeLines,
+      'expense_lines': expenseLines.isEmpty
+          ? '(no expenses in this period)'
+          : expenseLines,
       'context_block':
           '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
-      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+      'response_style': await renderPrompt('response_style', {
+        'transaction_tag': _transactionTag,
+      }),
     });
 
     return _requestCompletionText(
@@ -377,9 +434,13 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
 
     final derivedLines = StringBuffer();
     if (savingsRate != null) {
-      derivedLines.writeln('Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%');
+      derivedLines.writeln(
+        'Savings rate this period: ${(savingsRate * 100).toStringAsFixed(1)}%',
+      );
     }
-    if (topCategoryName != null && topCategoryAmount != null && topCategoryPercent != null) {
+    if (topCategoryName != null &&
+        topCategoryAmount != null &&
+        topCategoryPercent != null) {
       derivedLines.writeln(
         'Largest expense category: $topCategoryName at ${formatCurrency(topCategoryAmount)} '
         '(${(topCategoryPercent * 100).toStringAsFixed(0)}% of total expenses)',
@@ -393,11 +454,17 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       'total_income': formatCurrency(totalIncome),
       'total_expense': formatCurrency(totalExpense),
       'net': formatCurrency(net),
-      'income_lines': incomeLines.isEmpty ? '(no income in this period)' : incomeLines,
-      'expense_lines': expenseLines.isEmpty ? '(no expenses in this period)' : expenseLines,
+      'income_lines': incomeLines.isEmpty
+          ? '(no income in this period)'
+          : incomeLines,
+      'expense_lines': expenseLines.isEmpty
+          ? '(no expenses in this period)'
+          : expenseLines,
       'context_block':
           '${derivedLines.isEmpty ? '' : '\n$derivedLines'}${profileLines.isEmpty ? '' : '\n$profileLines'}${continuityLines.isEmpty ? '' : '\n$continuityLines'}',
-      'response_style': await renderPrompt('response_style', {'transaction_tag': _transactionTag}),
+      'response_style': await renderPrompt('response_style', {
+        'transaction_tag': _transactionTag,
+      }),
     });
 
     return _requestCompletionText(
@@ -421,7 +488,11 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
   }) async {
     for (var attempt = 0; ; attempt++) {
       try {
-        final decoded = await _postChatCompletion(apiKey: apiKey, modelSlug: modelSlug, messages: messages);
+        final decoded = await _postChatCompletion(
+          apiKey: apiKey,
+          modelSlug: modelSlug,
+          messages: messages,
+        );
         return _completionText(decoded);
       } on OpenRouterException catch (error) {
         if (attempt >= _retryDelays.length || !_isRetryable(error.kind)) {
@@ -435,14 +506,20 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
   String _completionText(Map<String, dynamic> decoded) {
     final choices = decoded['choices'];
     if (choices is! List || choices.isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.', kind: OpenRouterErrorKind.emptyResponse);
+      throw OpenRouterException(
+        'OpenRouter returned an empty response.',
+        kind: OpenRouterErrorKind.emptyResponse,
+      );
     }
 
     final choice = choices.first;
     final message = choice is Map ? choice['message'] : null;
     final content = message is Map ? message['content'] : null;
     if (content is! String || content.trim().isEmpty) {
-      throw OpenRouterException('OpenRouter returned an empty response.', kind: OpenRouterErrorKind.emptyResponse);
+      throw OpenRouterException(
+        'OpenRouter returned an empty response.',
+        kind: OpenRouterErrorKind.emptyResponse,
+      );
     }
     final trimmed = content.trim();
     // `openrouter/free` can route to a content-safety classifier. Its fixed
@@ -476,15 +553,17 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
   }) async {
     late http.Response response;
     try {
-      response = await _client.post(
-        Uri.parse(_endpoint),
-        headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-          'X-Title': 'Arkad',
-        },
-        body: jsonEncode({'model': modelSlug, 'messages': messages}),
-      ).timeout(_requestTimeout);
+      response = await _client
+          .post(
+            Uri.parse(_endpoint),
+            headers: {
+              'Authorization': 'Bearer $apiKey',
+              'Content-Type': 'application/json',
+              'X-Title': 'Arkad',
+            },
+            body: jsonEncode({'model': modelSlug, 'messages': messages}),
+          )
+          .timeout(_requestTimeout);
     } catch (_) {
       throw OpenRouterException(
         'Could not reach OpenRouter. Check your connection.',
@@ -498,7 +577,8 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       switch (response.statusCode) {
         case 401:
           kind = OpenRouterErrorKind.invalidKey;
-          fallback = 'Your OpenRouter API key was rejected. Check it in Settings.';
+          fallback =
+              'Your OpenRouter API key was rejected. Check it in Settings.';
           break;
         case 429:
           kind = OpenRouterErrorKind.rateLimited;
@@ -508,7 +588,8 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
         default:
           if (response.statusCode >= 500) {
             kind = OpenRouterErrorKind.server;
-            fallback = 'OpenRouter is having issues right now. Try again shortly.';
+            fallback =
+                'OpenRouter is having issues right now. Try again shortly.';
           } else {
             kind = OpenRouterErrorKind.unknown;
             fallback = 'OpenRouter returned ${response.statusCode}.';
@@ -530,7 +611,9 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
   }
 
   AgentReply _parseReply(String content) {
-    final (displayText, refIds, transactionMaps) = stripAndParseArkadBlocks(content);
+    final (displayText, refIds, transactionMaps) = stripAndParseArkadBlocks(
+      content,
+    );
 
     // Build a draft LedgerTransaction for each parsed map. Each gets a
     // distinct id (base timestamp + loop index) so a multi-item batch never
@@ -546,15 +629,22 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
         final amount = (map['amount'] as num).toDouble();
         final merchant = (map['merchant'] as String).trim();
         final category = (map['category'] as String).trim();
-        if (!amount.isFinite || amount <= 0 || merchant.isEmpty || category.isEmpty) continue;
-        transactions.add(LedgerTransaction(
-          id: baseId + i,
-          merchant: merchant,
-          category: category,
-          date: DateTime.now(),
-          amount: amount,
-          type: type,
-        ));
+        if (!amount.isFinite ||
+            amount <= 0 ||
+            merchant.isEmpty ||
+            category.isEmpty) {
+          continue;
+        }
+        transactions.add(
+          LedgerTransaction(
+            id: baseId + i,
+            merchant: merchant,
+            category: category,
+            date: DateTime.now(),
+            amount: amount,
+            type: type,
+          ),
+        );
       } catch (_) {
         // Malformed entry — skip it, don't discard the rest of the batch.
       }
@@ -582,11 +672,18 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
         .fold(0.0, (s, t) => s + t.amount);
 
     // Use relevant transactions based on user message, with recent-20 as baseline
-    final relevant = _relevantTransactions(userMessage, ledger, incomeCategories, expenseCategories);
-    final transactionLines = relevant.map((t) {
-      final sign = t.type == TransactionType.income ? '+' : '-';
-      return '- ${formatDate(t.date)} · ${t.merchant} · ${t.category} · $sign\$${t.amount.toStringAsFixed(2)}';
-    }).join('\n');
+    final relevant = _relevantTransactions(
+      userMessage,
+      ledger,
+      incomeCategories,
+      expenseCategories,
+    );
+    final transactionLines = relevant
+        .map((t) {
+          final sign = t.type == TransactionType.income ? '+' : '-';
+          return '- ${formatDate(t.date)} · ${t.merchant} · ${t.category} · $sign\$${t.amount.toStringAsFixed(2)}';
+        })
+        .join('\n');
 
     // Build profile section if any profile field is non-empty
     final profileLines = _buildProfileSection(profile);
@@ -614,7 +711,8 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
       parts.add('User: ${profile.displayName}');
     }
     if (profile.countryCode.isNotEmpty) {
-      final countryName = countryNameForCode(profile.countryCode) ?? profile.countryCode;
+      final countryName =
+          countryNameForCode(profile.countryCode) ?? profile.countryCode;
       parts.add('Country: $countryName');
     }
     if (profile.jobTitle.isNotEmpty) {
@@ -632,7 +730,8 @@ Write a short reflection in exactly two paragraphs. Summarize the preferences th
     if (profile.longTermGoal.isNotEmpty) {
       parts.add('Long-term Financial Goal: ${profile.longTermGoal}');
     }
-    if (profile.typicalMonthlyIncome != null && profile.typicalMonthlyIncome! > 0) {
+    if (profile.typicalMonthlyIncome != null &&
+        profile.typicalMonthlyIncome! > 0) {
       final formatted = formatCurrency(profile.typicalMonthlyIncome!);
       parts.add('Typical Monthly Income: $formatted');
     }
@@ -683,10 +782,14 @@ Reflect on progress since then where relevant — don't just repeat it.
     if (previousPeriodIncome != null || previousPeriodExpense != null) {
       comparisonLines.writeln('\nPrevious period for comparison:');
       if (previousPeriodIncome != null) {
-        comparisonLines.writeln('- Income: ${formatCurrency(previousPeriodIncome)}');
+        comparisonLines.writeln(
+          '- Income: ${formatCurrency(previousPeriodIncome)}',
+        );
       }
       if (previousPeriodExpense != null) {
-        comparisonLines.writeln('- Expenses: ${formatCurrency(previousPeriodExpense)}');
+        comparisonLines.writeln(
+          '- Expenses: ${formatCurrency(previousPeriodExpense)}',
+        );
       }
     }
 
@@ -699,7 +802,9 @@ Reflect on progress since then where relevant — don't just repeat it.
       'total_income': formatCurrency(totalIncome),
       'total_expense': formatCurrency(totalExpense),
       'net': formatCurrency(net),
-      'category_lines': categoryLines.isEmpty ? '(no expenses in this period)' : categoryLines,
+      'category_lines': categoryLines.isEmpty
+          ? '(no expenses in this period)'
+          : categoryLines,
       'comparison_block': comparisonLines.toString(),
       'profile_block': profileLines.isEmpty ? '' : '\n$profileLines',
       'transaction_tag': _transactionTag,
@@ -745,7 +850,8 @@ Reflect on progress since then where relevant — don't just repeat it.
     final dateMatches = _matchDatePhrases(messageLower);
     for (final t in allTransactions) {
       for (final dateRange in dateMatches) {
-        if (t.date.isAfter(dateRange.$1) && t.date.isBefore(dateRange.$2.add(const Duration(days: 1)))) {
+        if (t.date.isAfter(dateRange.$1) &&
+            t.date.isBefore(dateRange.$2.add(const Duration(days: 1)))) {
           matched.add(t.id);
         }
       }
@@ -761,10 +867,9 @@ Reflect on progress since then where relevant — don't just repeat it.
     final allMatched = {...matched, ...baselineIds};
 
     // Filter and sort by date (newest first)
-    final result = allTransactions
-        .where((t) => allMatched.contains(t.id))
-        .toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final result =
+        allTransactions.where((t) => allMatched.contains(t.id)).toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
 
     // Cap at ~40 transactions
     return result.take(40).toList();
@@ -818,8 +923,18 @@ Reflect on progress since then where relevant — don't just repeat it.
 
     // Month names (January through December)
     const monthNames = [
-      'january', 'february', 'march', 'april', 'may', 'june',
-      'july', 'august', 'september', 'october', 'november', 'december'
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
     ];
     for (var i = 0; i < monthNames.length; i++) {
       if (messageLower.contains(monthNames[i])) {
@@ -847,16 +962,25 @@ Reflect on progress since then where relevant — don't just repeat it.
 /// but a bare JSON object is also accepted (wrapped into a single-element
 /// list) for backward compatibility. Each array element is parsed
 /// independently so one malformed entry doesn't discard the whole batch.
-(String, List<int>, List<Map<String, dynamic>>) stripAndParseArkadBlocks(String content) {
+(String, List<int>, List<Map<String, dynamic>>) stripAndParseArkadBlocks(
+  String content,
+) {
   // Extract and remove arkad_transaction block
-  final transactionPattern = RegExp('```arkad_transaction\\s*([\\s\\S]*?)```', multiLine: true);
+  final transactionPattern = RegExp(
+    '```arkad_transaction\\s*([\\s\\S]*?)```',
+    multiLine: true,
+  );
   final transactionMatch = transactionPattern.firstMatch(content);
 
   final transactionMaps = <Map<String, dynamic>>[];
   var displayText = content;
 
   if (transactionMatch != null) {
-    displayText = displayText.replaceRange(transactionMatch.start, transactionMatch.end, '');
+    displayText = displayText.replaceRange(
+      transactionMatch.start,
+      transactionMatch.end,
+      '',
+    );
     try {
       final decoded = jsonDecode(transactionMatch.group(1)!.trim());
       if (decoded is List) {
@@ -880,7 +1004,10 @@ Reflect on progress since then where relevant — don't just repeat it.
   }
 
   // Extract and remove arkad_refs block
-  final refsPattern = RegExp('```arkad_refs\\s*([\\s\\S]*?)```', multiLine: true);
+  final refsPattern = RegExp(
+    '```arkad_refs\\s*([\\s\\S]*?)```',
+    multiLine: true,
+  );
   final refsMatch = refsPattern.firstMatch(displayText);
 
   var refIds = <int>[];

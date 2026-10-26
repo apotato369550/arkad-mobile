@@ -6,7 +6,11 @@ import 'analysis_period.dart';
 /// later. Dart records don't round-trip through JSON on their own, hence
 /// this tiny wrapper class.
 class CashFlowBucket {
-  CashFlowBucket({required this.start, required this.income, required this.expense});
+  CashFlowBucket({
+    required this.start,
+    required this.income,
+    required this.expense,
+  });
 
   final DateTime start;
   final double income;
@@ -21,10 +25,10 @@ class CashFlowBucket {
   }
 
   Map<String, dynamic> toJson() => {
-        'start': start.toIso8601String(),
-        'income': income,
-        'expense': expense,
-      };
+    'start': start.toIso8601String(),
+    'income': income,
+    'expense': expense,
+  };
 }
 
 enum AnalysisAnswerStatus { loading, loaded, error }
@@ -48,6 +52,7 @@ class SavedAnalysis {
     required this.expenseByCategory,
     required this.incomeByCategory,
     required this.cashFlowBuckets,
+    this.isArchived = false,
     this.goalProgressText,
     this.goalProgressStatus = AnalysisAnswerStatus.loading,
     this.goalProgressError,
@@ -61,6 +66,11 @@ class SavedAnalysis {
     this.actionableStepsStatus = AnalysisAnswerStatus.loading,
     this.actionableStepsError,
   });
+
+  final bool isArchived;
+  DateTime? get expiresAt => isArchived ? null : period.expiresAt(createdAt);
+  bool isExpiredAt(DateTime now) =>
+      expiresAt != null && !now.isBefore(expiresAt!);
 
   final String id;
   final AnalysisPeriod period;
@@ -90,9 +100,11 @@ class SavedAnalysis {
   final AnalysisAnswerStatus actionableStepsStatus;
   final String? actionableStepsError;
 
-  String get title => '${period.noun} ${formatMDY(rangeStart)} to ${formatMDY(rangeEnd)}';
+  String get title =>
+      '${period.noun} ${formatMDY(rangeStart)} to ${formatMDY(rangeEnd)}';
 
   SavedAnalysis copyWith({
+    bool? isArchived,
     String? goalProgressText,
     bool clearGoalProgressText = false,
     AnalysisAnswerStatus? goalProgressStatus,
@@ -115,6 +127,7 @@ class SavedAnalysis {
     bool clearActionableStepsError = false,
   }) {
     return SavedAnalysis(
+      isArchived: isArchived ?? this.isArchived,
       id: id,
       period: period,
       rangeStart: rangeStart,
@@ -126,29 +139,39 @@ class SavedAnalysis {
       expenseByCategory: expenseByCategory,
       incomeByCategory: incomeByCategory,
       cashFlowBuckets: cashFlowBuckets,
-      goalProgressText:
-          clearGoalProgressText ? null : (goalProgressText ?? this.goalProgressText),
+      goalProgressText: clearGoalProgressText
+          ? null
+          : (goalProgressText ?? this.goalProgressText),
       goalProgressStatus: goalProgressStatus ?? this.goalProgressStatus,
-      goalProgressError:
-          clearGoalProgressError ? null : (goalProgressError ?? this.goalProgressError),
-      costCuttingText:
-          clearCostCuttingText ? null : (costCuttingText ?? this.costCuttingText),
+      goalProgressError: clearGoalProgressError
+          ? null
+          : (goalProgressError ?? this.goalProgressError),
+      costCuttingText: clearCostCuttingText
+          ? null
+          : (costCuttingText ?? this.costCuttingText),
       costCuttingStatus: costCuttingStatus ?? this.costCuttingStatus,
-      costCuttingError:
-          clearCostCuttingError ? null : (costCuttingError ?? this.costCuttingError),
+      costCuttingError: clearCostCuttingError
+          ? null
+          : (costCuttingError ?? this.costCuttingError),
       overallText: clearOverallText ? null : (overallText ?? this.overallText),
       overallStatus: overallStatus ?? this.overallStatus,
-      overallError: clearOverallError ? null : (overallError ?? this.overallError),
-      actionableStepsText:
-          clearActionableStepsText ? null : (actionableStepsText ?? this.actionableStepsText),
-      actionableStepsStatus: actionableStepsStatus ?? this.actionableStepsStatus,
-      actionableStepsError:
-          clearActionableStepsError ? null : (actionableStepsError ?? this.actionableStepsError),
+      overallError: clearOverallError
+          ? null
+          : (overallError ?? this.overallError),
+      actionableStepsText: clearActionableStepsText
+          ? null
+          : (actionableStepsText ?? this.actionableStepsText),
+      actionableStepsStatus:
+          actionableStepsStatus ?? this.actionableStepsStatus,
+      actionableStepsError: clearActionableStepsError
+          ? null
+          : (actionableStepsError ?? this.actionableStepsError),
     );
   }
 
   factory SavedAnalysis.fromJson(Map<String, dynamic> json) {
     return SavedAnalysis(
+      isArchived: json['isArchived'] as bool? ?? false,
       id: json['id'] as String,
       period: AnalysisPeriod.values.byName(json['period'] as String),
       rangeStart: DateTime.parse(json['rangeStart'] as String),
@@ -156,56 +179,63 @@ class SavedAnalysis {
       createdAt: DateTime.parse(json['createdAt'] as String),
       totalIncome: (json['totalIncome'] as num).toDouble(),
       totalExpense: (json['totalExpense'] as num).toDouble(),
-      previousPeriodExpense: (json['previousPeriodExpense'] as num?)?.toDouble() ?? 0.0,
+      previousPeriodExpense:
+          (json['previousPeriodExpense'] as num?)?.toDouble() ?? 0.0,
       expenseByCategory: (json['expenseByCategory'] as Map<String, dynamic>)
           .map((k, v) => MapEntry(k, (v as num).toDouble())),
-      incomeByCategory: (json['incomeByCategory'] as Map<String, dynamic>)
-          .map((k, v) => MapEntry(k, (v as num).toDouble())),
+      incomeByCategory: (json['incomeByCategory'] as Map<String, dynamic>).map(
+        (k, v) => MapEntry(k, (v as num).toDouble()),
+      ),
       cashFlowBuckets: (json['cashFlowBuckets'] as List<dynamic>)
           .map((e) => CashFlowBucket.fromJson(e as Map<String, dynamic>))
           .toList(),
       goalProgressText: json['goalProgressText'] as String?,
-      goalProgressStatus:
-          AnalysisAnswerStatus.values.byName(json['goalProgressStatus'] as String? ?? 'loaded'),
+      goalProgressStatus: AnalysisAnswerStatus.values.byName(
+        json['goalProgressStatus'] as String? ?? 'loaded',
+      ),
       goalProgressError: json['goalProgressError'] as String?,
       costCuttingText: json['costCuttingText'] as String?,
-      costCuttingStatus:
-          AnalysisAnswerStatus.values.byName(json['costCuttingStatus'] as String? ?? 'loaded'),
+      costCuttingStatus: AnalysisAnswerStatus.values.byName(
+        json['costCuttingStatus'] as String? ?? 'loaded',
+      ),
       costCuttingError: json['costCuttingError'] as String?,
       overallText: json['overallText'] as String?,
-      overallStatus:
-          AnalysisAnswerStatus.values.byName(json['overallStatus'] as String? ?? 'loaded'),
+      overallStatus: AnalysisAnswerStatus.values.byName(
+        json['overallStatus'] as String? ?? 'loaded',
+      ),
       overallError: json['overallError'] as String?,
       actionableStepsText: json['actionableStepsText'] as String?,
-      actionableStepsStatus: AnalysisAnswerStatus.values
-          .byName(json['actionableStepsStatus'] as String? ?? 'loaded'),
+      actionableStepsStatus: AnalysisAnswerStatus.values.byName(
+        json['actionableStepsStatus'] as String? ?? 'loaded',
+      ),
       actionableStepsError: json['actionableStepsError'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'period': period.name,
-        'rangeStart': rangeStart.toIso8601String(),
-        'rangeEnd': rangeEnd.toIso8601String(),
-        'createdAt': createdAt.toIso8601String(),
-        'totalIncome': totalIncome,
-        'totalExpense': totalExpense,
-        'previousPeriodExpense': previousPeriodExpense,
-        'expenseByCategory': expenseByCategory,
-        'incomeByCategory': incomeByCategory,
-        'cashFlowBuckets': cashFlowBuckets.map((b) => b.toJson()).toList(),
-        'goalProgressText': goalProgressText,
-        'goalProgressStatus': goalProgressStatus.name,
-        'goalProgressError': goalProgressError,
-        'costCuttingText': costCuttingText,
-        'costCuttingStatus': costCuttingStatus.name,
-        'costCuttingError': costCuttingError,
-        'overallText': overallText,
-        'overallStatus': overallStatus.name,
-        'overallError': overallError,
-        'actionableStepsText': actionableStepsText,
-        'actionableStepsStatus': actionableStepsStatus.name,
-        'actionableStepsError': actionableStepsError,
-      };
+    'isArchived': isArchived,
+    'id': id,
+    'period': period.name,
+    'rangeStart': rangeStart.toIso8601String(),
+    'rangeEnd': rangeEnd.toIso8601String(),
+    'createdAt': createdAt.toIso8601String(),
+    'totalIncome': totalIncome,
+    'totalExpense': totalExpense,
+    'previousPeriodExpense': previousPeriodExpense,
+    'expenseByCategory': expenseByCategory,
+    'incomeByCategory': incomeByCategory,
+    'cashFlowBuckets': cashFlowBuckets.map((b) => b.toJson()).toList(),
+    'goalProgressText': goalProgressText,
+    'goalProgressStatus': goalProgressStatus.name,
+    'goalProgressError': goalProgressError,
+    'costCuttingText': costCuttingText,
+    'costCuttingStatus': costCuttingStatus.name,
+    'costCuttingError': costCuttingError,
+    'overallText': overallText,
+    'overallStatus': overallStatus.name,
+    'overallError': overallError,
+    'actionableStepsText': actionableStepsText,
+    'actionableStepsStatus': actionableStepsStatus.name,
+    'actionableStepsError': actionableStepsError,
+  };
 }

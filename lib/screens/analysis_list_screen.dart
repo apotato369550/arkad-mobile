@@ -1,205 +1,182 @@
 import 'package:flutter/material.dart';
-import '../models/category.dart';
-import '../models/saved_analysis.dart';
+import '../models/analysis_period.dart';
 import '../services/app_state.dart';
 import '../services/formatters.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/app_card.dart';
+import '../widgets/saved_analysis_card.dart';
 import 'analysis_detail_screen.dart';
 
-/// List of past saved analyses, mirroring ConversationListScreen's layout.
-/// Unlike conversations, new analyses are only created via the "Request
-/// Analysis" flow on AnalysisScreen, so there's no "new" action here.
-class AnalysisListScreen extends StatelessWidget {
-  const AnalysisListScreen({super.key, required this.appState});
-
+class AnalysisListScreen extends StatefulWidget {
+  const AnalysisListScreen({
+    super.key,
+    required this.appState,
+    required this.period,
+  });
   final AppState appState;
-
-  void _confirmDeleteAnalysis(BuildContext context, SavedAnalysis analysis) {
-    showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.paper,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.modal)),
-        title: Text('Delete analysis?', style: AppTextStyles.cardHeading()),
-        content: Text(
-          'This permanently deletes "${analysis.title}" from this device.',
-          style: AppTextStyles.body(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('Cancel', style: AppTextStyles.manrope()),
-          ),
-          TextButton(
-            onPressed: () {
-              appState.deleteSavedAnalysis(analysis.id);
-              Navigator.of(context).pop();
-            },
-            child: Text(
-              'Delete',
-              style: AppTextStyles.manrope(color: AppColors.clay, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _isGenerating(SavedAnalysis analysis) {
-    return analysis.goalProgressStatus == AnalysisAnswerStatus.loading ||
-        analysis.costCuttingStatus == AnalysisAnswerStatus.loading ||
-        analysis.overallStatus == AnalysisAnswerStatus.loading ||
-        analysis.actionableStepsStatus == AnalysisAnswerStatus.loading;
-  }
+  final AnalysisPeriod period;
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: appState,
-      builder: (context, _) {
-        final analyses = appState.savedAnalyses;
-
-        return Scaffold(
-          backgroundColor: AppColors.cream,
-          appBar: AppBar(title: const Text('Past Analyses')),
-          body: analyses.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Image.asset(
-                          categoryIconAsset('analysis', isIncome: true),
-                          width: 48,
-                          height: 48,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No analyses yet',
-                          style: AppTextStyles.cardHeading(),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Request an analysis from the Analysis page to see it here.',
-                          style: AppTextStyles.body(color: AppColors.ink60),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: analyses.length,
-                  itemBuilder: (context, i) {
-                    final analysis = analyses[i];
-                    final generating = _isGenerating(analysis);
-
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: Material(
-                        color: AppColors.paper,
-                        borderRadius: BorderRadius.circular(AppRadii.card),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(AppRadii.card),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AnalysisDetailScreen(
-                                  appState: appState,
-                                  analysisId: analysis.id,
-                                ),
-                              ),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              analysis.title,
-                                              style: AppTextStyles.manrope(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (generating) ...[
-                                            const SizedBox(width: 8),
-                                            const _GeneratingChip(),
-                                          ],
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${formatCurrency(analysis.totalIncome)} in · '
-                                        '${formatCurrency(analysis.totalExpense)} out',
-                                        style: AppTextStyles.metadata(),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        formatDayHeader(analysis.createdAt),
-                                        style: AppTextStyles.manrope(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                          color: AppColors.ink60,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 20),
-                                  onPressed: () => _confirmDeleteAnalysis(context, analysis),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        );
-      },
-    );
-  }
+  State<AnalysisListScreen> createState() => _AnalysisListScreenState();
 }
 
-class _GeneratingChip extends StatelessWidget {
-  const _GeneratingChip();
+class _AnalysisListScreenState extends State<AnalysisListScreen> {
+  bool _archivedOnly = false;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.sageTint,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Text(
-        'Generating…',
-        style: AppTextStyles.manrope(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: AppColors.darkGreen,
-        ),
-      ),
-    );
+  void initState() {
+    super.initState();
+    widget.appState.pruneExpiredAnalyses(notify: false);
   }
+
+  Future<void> _request() async {
+    try {
+      final id = await widget.appState.requestAnalysis(widget.period);
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              AnalysisDetailScreen(appState: widget.appState, analysisId: id),
+        ),
+      );
+    } on AnalysisRequestException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.appState,
+    builder: (context, _) {
+      final state = widget.appState;
+      final period = widget.period;
+      final analyses =
+          state.savedAnalyses
+              .where(
+                (a) => a.period == period && (!_archivedOnly || a.isArchived),
+              )
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final busy = state.isRequestingAnalysis(period);
+      final enoughData = state.meetsActivityThreshold(period);
+      final next = state.nextAvailableAt(period);
+      final enabled =
+          state.hasApiKey && enoughData && state.canRequestAnalysis(period);
+      final reason = busy
+          ? 'Arkad is analyzing your finances…'
+          : !state.hasApiKey
+          ? 'Add an OpenRouter API key in Settings to generate an analysis.'
+          : !enoughData
+          ? 'Not enough data yet. Record transactions on at least half the days in this period.'
+          : next != null
+          ? 'Available again on ${formatMDY(next)}'
+          : 'Create an in-depth snapshot of this period.';
+      return Scaffold(
+        backgroundColor: AppColors.cream,
+        appBar: AppBar(title: Text('${period.historyLabel} Analyses')),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+          children: [
+            Text('Your financial story', style: AppTextStyles.pageHeading()),
+            const SizedBox(height: 10),
+            Text(
+              period == AnalysisPeriod.sixMonths
+                  ? 'A six-month view of your finances.'
+                  : 'Saved snapshots and guidance, all in one place.',
+              style: AppTextStyles.metadata(),
+            ),
+            const SizedBox(height: 24),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Request a new analysis',
+                    style: AppTextStyles.cardHeading(),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    reason,
+                    style: AppTextStyles.body(color: AppColors.ink60),
+                  ),
+                  if (period == AnalysisPeriod.ytd) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      '${state.ytdRequestsRemaining} of 3 requests remaining this month · Resets on the 1st',
+                      style: AppTextStyles.metadata(),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: enabled ? _request : null,
+                    icon: busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.auto_awesome_outlined),
+                    label: Text(
+                      busy
+                          ? 'Generating…'
+                          : 'Request ${period.historyLabel} Analysis',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('All')),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Archived'),
+                  icon: Icon(Icons.archive_outlined),
+                ),
+              ],
+              selected: {_archivedOnly},
+              onSelectionChanged: (value) =>
+                  setState(() => _archivedOnly = value.single),
+            ),
+            const SizedBox(height: 20),
+            if (analyses.isEmpty)
+              AppCard(
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.insights_outlined,
+                      size: 36,
+                      color: AppColors.darkGreen,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _archivedOnly
+                          ? 'No archived analyses'
+                          : 'No analyses yet',
+                      style: AppTextStyles.cardHeading(),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _archivedOnly
+                          ? 'Archive an analysis to keep it indefinitely.'
+                          : 'Your analyses will appear here when they are ready.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body(color: AppColors.ink60),
+                    ),
+                  ],
+                ),
+              ),
+            for (final analysis in analyses) ...[
+              SavedAnalysisCard(appState: state, analysis: analysis),
+              const SizedBox(height: 16),
+            ],
+          ],
+        ),
+      );
+    },
+  );
 }

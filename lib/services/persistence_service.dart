@@ -33,9 +33,11 @@ class PersistenceService {
   static const _conversationsKey = 'arkad:conversations:v1';
   static const _chatHistoryKey = 'arkad:chat-history:v1';
   static const _savedAnalysesKey = 'arkad:saved-analyses:v1';
+  static const _ytdUsageKey = 'arkad:ytd-usage:v1';
   static const _analysisRequestLogKey = 'arkad:analysis-request-log:v1';
   static const _backupSettingsKey = 'arkad:backup-settings:v1';
-  static const _categoriesDefaultsMergedKey = 'arkad:categories-defaults-merged:v1';
+  static const _categoriesDefaultsMergedKey =
+      'arkad:categories-defaults-merged:v1';
   static const _secureApiKeyKey = 'arkad_api_key';
   // Bounds every secure-storage call: Keystore/libsecret access can in
   // principle stall (platform prompts, a broken keyring service), and that
@@ -52,7 +54,9 @@ class PersistenceService {
 
     String? apiKey;
     try {
-      apiKey = await secureStorage.read(key: _secureApiKeyKey).timeout(_secureOpTimeout);
+      apiKey = await secureStorage
+          .read(key: _secureApiKeyKey)
+          .timeout(_secureOpTimeout);
     } catch (_) {
       apiKey = null;
     }
@@ -88,16 +92,26 @@ class PersistenceService {
     if (prefs.getBool(_categoriesDefaultsMergedKey) != true) {
       final income = prefs.getStringList(_incomeCategoriesKey);
       if (income != null && income.isNotEmpty) {
-        final missing = defaultIncomeCategories.where((c) => !income.contains(c));
+        final missing = defaultIncomeCategories.where(
+          (c) => !income.contains(c),
+        );
         if (missing.isNotEmpty) {
-          await prefs.setStringList(_incomeCategoriesKey, [...income, ...missing]);
+          await prefs.setStringList(_incomeCategoriesKey, [
+            ...income,
+            ...missing,
+          ]);
         }
       }
       final expense = prefs.getStringList(_expenseCategoriesKey);
       if (expense != null && expense.isNotEmpty) {
-        final missing = defaultExpenseCategories.where((c) => !expense.contains(c));
+        final missing = defaultExpenseCategories.where(
+          (c) => !expense.contains(c),
+        );
         if (missing.isNotEmpty) {
-          await prefs.setStringList(_expenseCategoriesKey, [...expense, ...missing]);
+          await prefs.setStringList(_expenseCategoriesKey, [
+            ...expense,
+            ...missing,
+          ]);
         }
       }
       await prefs.setBool(_categoriesDefaultsMergedKey, true);
@@ -113,7 +127,9 @@ class PersistenceService {
     if (raw == null) return AppConfig.isDebugMode ? _seedTransactions() : [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
-      return list.map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>)).toList();
+      return list
+          .map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (_) {
       return AppConfig.isDebugMode ? _seedTransactions() : [];
     }
@@ -142,7 +158,9 @@ class PersistenceService {
 
   List<String> loadIncomeCategories() {
     final raw = _prefs.getStringList(_incomeCategoriesKey);
-    return (raw == null || raw.isEmpty) ? List.of(defaultIncomeCategories) : raw;
+    return (raw == null || raw.isEmpty)
+        ? List.of(defaultIncomeCategories)
+        : raw;
   }
 
   Future<void> saveIncomeCategories(List<String> categories) {
@@ -151,7 +169,9 @@ class PersistenceService {
 
   List<String> loadExpenseCategories() {
     final raw = _prefs.getStringList(_expenseCategoriesKey);
-    return (raw == null || raw.isEmpty) ? List.of(defaultExpenseCategories) : raw;
+    return (raw == null || raw.isEmpty)
+        ? List.of(defaultExpenseCategories)
+        : raw;
   }
 
   Future<void> saveExpenseCategories(List<String> categories) {
@@ -180,8 +200,13 @@ class PersistenceService {
     final raw = _prefs.getString(_apiConfigKey);
     if (raw == null) return ApiConfig(apiKey: _cachedApiKey);
     try {
-      final config = ApiConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-      return config.copyWith(apiKey: _cachedApiKey, clearKey: _cachedApiKey == null);
+      final config = ApiConfig.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+      return config.copyWith(
+        apiKey: _cachedApiKey,
+        clearKey: _cachedApiKey == null,
+      );
     } catch (_) {
       return ApiConfig(apiKey: _cachedApiKey);
     }
@@ -195,7 +220,9 @@ class PersistenceService {
             .write(key: _secureApiKeyKey, value: config.apiKey)
             .timeout(_secureOpTimeout);
       } else {
-        await _secureStorage.delete(key: _secureApiKeyKey).timeout(_secureOpTimeout);
+        await _secureStorage
+            .delete(key: _secureApiKeyKey)
+            .timeout(_secureOpTimeout);
       }
     } catch (_) {}
     // apiKey is intentionally omitted here — it lives only in secure storage.
@@ -210,7 +237,9 @@ class PersistenceService {
     if (raw != null) {
       try {
         final list = jsonDecode(raw) as List<dynamic>;
-        return list.map((e) => Conversation.fromJson(e as Map<String, dynamic>)).toList();
+        return list
+            .map((e) => Conversation.fromJson(e as Map<String, dynamic>))
+            .toList();
       } catch (_) {
         return [];
       }
@@ -253,7 +282,9 @@ class PersistenceService {
     if (raw == null) return [];
     try {
       final list = jsonDecode(raw) as List<dynamic>;
-      return list.map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>)).toList();
+      return list
+          .map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>))
+          .toList();
     } catch (_) {
       return [];
     }
@@ -272,7 +303,10 @@ class PersistenceService {
     try {
       final json = jsonDecode(raw) as Map<String, dynamic>;
       return json.map(
-        (key, value) => MapEntry(AnalysisPeriod.values.byName(key), DateTime.parse(value as String)),
+        (key, value) => MapEntry(
+          AnalysisPeriod.values.byName(key),
+          DateTime.parse(value as String),
+        ),
       );
     } catch (_) {
       return {};
@@ -282,9 +316,35 @@ class PersistenceService {
   Future<void> saveAnalysisRequestLog(Map<AnalysisPeriod, DateTime> log) {
     return _prefs.setString(
       _analysisRequestLogKey,
-      jsonEncode(log.map((period, date) => MapEntry(period.name, date.toIso8601String()))),
+      jsonEncode(
+        log.map(
+          (period, date) => MapEntry(period.name, date.toIso8601String()),
+        ),
+      ),
     );
   }
+
+  Map<String, int> loadYtdUsage() {
+    final raw = _prefs.getString(_ytdUsageKey);
+    if (raw == null) return {};
+    try {
+      return decodeYtdUsage(jsonDecode(raw));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Map<String, int> decodeYtdUsage(dynamic value) {
+    if (value is! Map) return {};
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String && entry.value is int && entry.value >= 0)
+          entry.key as String: entry.value as int,
+    };
+  }
+
+  Future<void> saveYtdUsage(Map<String, int> usage) =>
+      _prefs.setString(_ytdUsageKey, jsonEncode(usage));
 
   BackupSettings loadBackupSettings() {
     final raw = _prefs.getString(_backupSettingsKey);
@@ -312,6 +372,7 @@ class PersistenceService {
   Map<String, dynamic> buildBackupSnapshot() {
     return {
       'version': _backupSnapshotVersion,
+      'ytdUsage': loadYtdUsage(),
       'transactions': loadTransactions().map((t) => t.toJson()).toList(),
       'profile': loadProfile().toJson(),
       'incomeCategories': loadIncomeCategories(),
@@ -336,11 +397,16 @@ class PersistenceService {
     final transactions = (snapshot['transactions'] as List<dynamic>)
         .map((e) => LedgerTransaction.fromJson(e as Map<String, dynamic>))
         .toList();
-    final profile = Profile.fromJson(snapshot['profile'] as Map<String, dynamic>);
-    final income = (snapshot['incomeCategories'] as List<dynamic>).cast<String>();
-    final expense = (snapshot['expenseCategories'] as List<dynamic>).cast<String>();
-    final icons = (snapshot['categoryIcons'] as Map<String, dynamic>)
-        .map((k, v) => MapEntry(k, v as String));
+    final profile = Profile.fromJson(
+      snapshot['profile'] as Map<String, dynamic>,
+    );
+    final income = (snapshot['incomeCategories'] as List<dynamic>)
+        .cast<String>();
+    final expense = (snapshot['expenseCategories'] as List<dynamic>)
+        .cast<String>();
+    final icons = (snapshot['categoryIcons'] as Map<String, dynamic>).map(
+      (k, v) => MapEntry(k, v as String),
+    );
     final conversations = (snapshot['conversations'] as List<dynamic>)
         .map((e) => Conversation.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -348,7 +414,12 @@ class PersistenceService {
         .map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>))
         .toList();
 
+    final usage = loadYtdUsage();
+    for (final entry in decodeYtdUsage(snapshot['ytdUsage']).entries) {
+      usage[entry.key] = max(usage[entry.key] ?? 0, entry.value);
+    }
     await Future.wait([
+      saveYtdUsage(usage),
       saveTransactions(transactions),
       saveProfile(profile),
       saveIncomeCategories(income),
@@ -362,7 +433,9 @@ class PersistenceService {
   Future<void> clearAll() async {
     _cachedApiKey = null;
     try {
-      await _secureStorage.delete(key: _secureApiKeyKey).timeout(_secureOpTimeout);
+      await _secureStorage
+          .delete(key: _secureApiKeyKey)
+          .timeout(_secureOpTimeout);
     } catch (_) {}
     await Future.wait([
       _prefs.remove(_transactionsKey),
@@ -375,6 +448,7 @@ class PersistenceService {
       _prefs.remove(_chatHistoryKey),
       _prefs.remove(_savedAnalysesKey),
       _prefs.remove(_analysisRequestLogKey),
+      _prefs.remove(_ytdUsageKey),
       _prefs.remove(_backupSettingsKey),
     ]);
   }
@@ -396,7 +470,12 @@ class PersistenceService {
     final entries = <LedgerTransaction>[];
     var id = 1;
 
-    const groceryMerchants = ["Trader Joe's", 'Whole Foods', 'Safeway', 'Sprouts Market'];
+    const groceryMerchants = [
+      "Trader Joe's",
+      'Whole Foods',
+      'Safeway',
+      'Sprouts Market',
+    ];
     const diningMerchants = [
       'Chipotle',
       'Sweetgreen',
@@ -409,45 +488,116 @@ class PersistenceService {
     ];
     const generalMerchants = ['Amazon', 'Target', 'Home Depot', 'IKEA'];
     const transportMerchants = ['Uber', 'Lyft'];
-    const entertainmentMerchants = ['AMC Theatres', 'Steam', 'PlayStation Store', 'Ticketmaster'];
-    const healthMerchants = ['CVS Pharmacy', 'Walgreens', 'City Dental', 'Riverside Urgent Care'];
+    const entertainmentMerchants = [
+      'AMC Theatres',
+      'Steam',
+      'PlayStation Store',
+      'Ticketmaster',
+    ];
+    const healthMerchants = [
+      'CVS Pharmacy',
+      'Walgreens',
+      'City Dental',
+      'Riverside Urgent Care',
+    ];
     const travelMerchants = ['Delta Airlines', 'Airbnb', 'Marriott Hotels'];
-    const subscriptions = [('Spotify', 11.99), ('Netflix', 15.49), ('Iron Peak Gym', 42.0)];
+    const subscriptions = [
+      ('Spotify', 11.99),
+      ('Netflix', 15.49),
+      ('Iron Peak Gym', 42.0),
+    ];
     const utilityMerchant = 'Riverside Water Co.';
     const giftOccasions = ['Birthday gift', 'Holiday gift'];
 
-    void addIfPast(DateTime date, String merchant, String category, double amount, TransactionType type) {
+    void addIfPast(
+      DateTime date,
+      String merchant,
+      String category,
+      double amount,
+      TransactionType type,
+    ) {
       if (date.isAfter(now)) return;
-      entries.add(LedgerTransaction(
-        id: id++,
-        merchant: merchant,
-        category: category,
-        date: date,
-        amount: amount,
-        type: type,
-      ));
+      entries.add(
+        LedgerTransaction(
+          id: id++,
+          merchant: merchant,
+          category: category,
+          date: date,
+          amount: amount,
+          type: type,
+        ),
+      );
     }
 
     for (var monthsAgo = 11; monthsAgo >= 0; monthsAgo--) {
       final monthYear = now.year;
       final monthNum = now.month - monthsAgo;
       final daysInMonth = DateTime(monthYear, monthNum + 1, 0).day;
-      DateTime onDay(int day) => DateTime(monthYear, monthNum, day.clamp(1, daysInMonth));
+      DateTime onDay(int day) =>
+          DateTime(monthYear, monthNum, day.clamp(1, daysInMonth));
       // The last ~3 months get much denser daily coverage.
       final isRecent = monthsAgo <= 2;
 
       // A modest raise kicks in for the more recent half of the year.
       final payrollBase = monthsAgo <= 5 ? 1750.0 : 1600.0;
-      addIfPast(onDay(1), 'Employer Payroll', 'Salary', payrollBase + random.nextInt(120), TransactionType.income);
-      addIfPast(onDay(15), 'Employer Payroll', 'Salary', payrollBase + random.nextInt(120), TransactionType.income);
+      addIfPast(
+        onDay(1),
+        'Employer Payroll',
+        'Salary',
+        payrollBase + random.nextInt(120),
+        TransactionType.income,
+      );
+      addIfPast(
+        onDay(15),
+        'Employer Payroll',
+        'Salary',
+        payrollBase + random.nextInt(120),
+        TransactionType.income,
+      );
       // Smaller recurring biweekly allowance, every month.
-      addIfPast(onDay(8), 'Family Allowance', 'Allowance', 50.0 + random.nextInt(80), TransactionType.income);
-      addIfPast(onDay(22), 'Family Allowance', 'Allowance', 50.0 + random.nextInt(80), TransactionType.income);
-      addIfPast(onDay(1), 'Maple Court Apartments', 'Housing', 1450, TransactionType.expense);
-      addIfPast(onDay(3), 'Metro Transit', 'Transport', 45, TransactionType.expense);
-      addIfPast(onDay(10), utilityMerchant, 'Utilities', 25.0 + random.nextInt(35), TransactionType.expense);
+      addIfPast(
+        onDay(8),
+        'Family Allowance',
+        'Allowance',
+        50.0 + random.nextInt(80),
+        TransactionType.income,
+      );
+      addIfPast(
+        onDay(22),
+        'Family Allowance',
+        'Allowance',
+        50.0 + random.nextInt(80),
+        TransactionType.income,
+      );
+      addIfPast(
+        onDay(1),
+        'Maple Court Apartments',
+        'Housing',
+        1450,
+        TransactionType.expense,
+      );
+      addIfPast(
+        onDay(3),
+        'Metro Transit',
+        'Transport',
+        45,
+        TransactionType.expense,
+      );
+      addIfPast(
+        onDay(10),
+        utilityMerchant,
+        'Utilities',
+        25.0 + random.nextInt(35),
+        TransactionType.expense,
+      );
       for (final sub in subscriptions) {
-        addIfPast(onDay(5), sub.$1, 'Subscriptions', sub.$2, TransactionType.expense);
+        addIfPast(
+          onDay(5),
+          sub.$1,
+          'Subscriptions',
+          sub.$2,
+          TransactionType.expense,
+        );
       }
       // Groceries: weekly all year.
       for (var day = 4; day <= daysInMonth; day += 7) {
@@ -561,8 +711,13 @@ class PersistenceService {
       }
       // Freelance/hourly wage income: roughly a third of months.
       if (random.nextDouble() < 0.35) {
-        addIfPast(onDay(20 + random.nextInt(8)), 'Freelance client', 'Wage', 150.0 + random.nextInt(500),
-            TransactionType.income);
+        addIfPast(
+          onDay(20 + random.nextInt(8)),
+          'Freelance client',
+          'Wage',
+          150.0 + random.nextInt(500),
+          TransactionType.income,
+        );
       }
       // Occasional gift income: a few times a year.
       if (random.nextDouble() < 0.15) {
@@ -576,7 +731,13 @@ class PersistenceService {
       }
       // Year-end bonus.
       if (monthNum == 12) {
-        addIfPast(onDay(20), 'Employer Payroll', 'Bonus', 900.0 + random.nextInt(600), TransactionType.income);
+        addIfPast(
+          onDay(20),
+          'Employer Payroll',
+          'Bonus',
+          900.0 + random.nextInt(600),
+          TransactionType.income,
+        );
       }
     }
 

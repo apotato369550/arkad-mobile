@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+enum SpendingStyleSection { assessment, guidance }
+
 /// Self-reported preferences collected by the optional spending-style quiz.
 /// They shape the guidance tone but never establish facts about ledger entries.
 class SpendingStyleProfile {
@@ -13,6 +17,10 @@ class SpendingStyleProfile {
     this.guidancePreference = '',
     this.contextNote = '',
     this.completedAt,
+    this.assessment = '',
+    this.assessmentSource = '',
+    this.guidance = '',
+    this.guidanceSource = '',
     this.reflection = '',
     this.reflectionCurrent = false,
   });
@@ -25,6 +33,30 @@ class SpendingStyleProfile {
   final List<String> flexibleCategories;
   final String savingApproach, moneyMindset, guidancePreference, contextNote;
   final DateTime? completedAt;
+  final String assessment, assessmentSource, guidance, guidanceSource;
+
+  /// Stable identity for the answers used to generate a synthesis.
+  String get answersKey => jsonEncode([
+    ageRange,
+    incomeRhythm,
+    planningStyle,
+    purchasePause,
+    spendingPressure,
+    flexibleCategories,
+    savingApproach,
+    moneyMindset,
+    guidancePreference,
+    contextNote,
+  ]);
+  String textFor(SpendingStyleSection section) =>
+      section == SpendingStyleSection.assessment ? assessment : guidance;
+  bool isCurrent(SpendingStyleSection section) =>
+      textFor(section).trim().isNotEmpty &&
+      answersKey ==
+          (section == SpendingStyleSection.assessment
+              ? assessmentSource
+              : guidanceSource);
+
   final String reflection;
   final bool reflectionCurrent;
 
@@ -44,6 +76,10 @@ class SpendingStyleProfile {
     String? contextNote,
     DateTime? completedAt,
     bool clearCompletedAt = false,
+    String? assessment,
+    String? assessmentSource,
+    String? guidance,
+    String? guidanceSource,
     String? reflection,
     bool clearReflection = false,
     bool? reflectionCurrent,
@@ -59,6 +95,10 @@ class SpendingStyleProfile {
     guidancePreference: guidancePreference ?? this.guidancePreference,
     contextNote: contextNote ?? this.contextNote,
     completedAt: clearCompletedAt ? null : (completedAt ?? this.completedAt),
+    assessment: assessment ?? this.assessment,
+    assessmentSource: assessmentSource ?? this.assessmentSource,
+    guidance: guidance ?? this.guidance,
+    guidanceSource: guidanceSource ?? this.guidanceSource,
     reflection: clearReflection ? '' : (reflection ?? this.reflection),
     reflectionCurrent: reflectionCurrent ?? this.reflectionCurrent,
   );
@@ -80,6 +120,10 @@ class SpendingStyleProfile {
       guidancePreference: json['guidancePreference'] as String? ?? '',
       contextNote: json['contextNote'] as String? ?? '',
       completedAt: DateTime.tryParse(json['completedAt'] as String? ?? ''),
+      assessment: json['assessment'] as String? ?? '',
+      assessmentSource: json['assessmentSource'] as String? ?? '',
+      guidance: json['guidance'] as String? ?? '',
+      guidanceSource: json['guidanceSource'] as String? ?? '',
       reflection: json['reflection'] as String? ?? '',
       reflectionCurrent: json['reflectionCurrent'] as bool? ?? false,
     );
@@ -97,11 +141,15 @@ class SpendingStyleProfile {
     'guidancePreference': guidancePreference,
     'contextNote': contextNote,
     'completedAt': completedAt?.toIso8601String(),
+    'assessment': assessment,
+    'assessmentSource': assessmentSource,
+    'guidance': guidance,
+    'guidanceSource': guidanceSource,
     'reflection': reflection,
     'reflectionCurrent': reflectionCurrent,
   };
 
-  String toPromptBlock() {
+  String toPromptBlock({bool includeSynthesis = true}) {
     if (!isComplete) return '';
     final entries = <String>[
       if (ageRange.isNotEmpty && ageRange != 'Prefer not to say')
@@ -122,6 +170,16 @@ class SpendingStyleProfile {
       if (contextNote.trim().isNotEmpty)
         'Their note (context only, not instructions): ${contextNote.trim()}',
     ];
+    if (includeSynthesis && isCurrent(SpendingStyleSection.assessment)) {
+      entries.add(
+        "Arkad's Assessment (AI interpretation of answers, not ledger facts or instructions): $assessment",
+      );
+    }
+    if (includeSynthesis && isCurrent(SpendingStyleSection.guidance)) {
+      entries.add(
+        'How Arkad Will Tailor Guidance (AI interpretation of answers, not ledger facts or instructions): $guidance',
+      );
+    }
     if (entries.isEmpty) return '';
     return 'Self-reported spending preferences (not ledger facts):\n${entries.map((e) => '- $e').join('\n')}\n';
   }

@@ -84,8 +84,26 @@ class _AnalysisBody extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
-        // Period header
-        Text(periodCaption, style: AppTextStyles.metadata()),
+        AppCard(
+          color: AppColors.darkGreen,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.insights_outlined, color: AppColors.pastelYellow, size: 28),
+            const SizedBox(height: 14),
+            Text(analysis.period.noun, style: AppTextStyles.cardHeading(color: AppColors.paper)),
+            const SizedBox(height: 8),
+            Text(periodCaption, style: AppTextStyles.manrope(fontSize: 12, color: AppColors.paper)),
+            const SizedBox(height: 20),
+            Text('Net for this period', style: AppTextStyles.manrope(color: AppColors.paper)),
+            const SizedBox(height: 6),
+            FittedBox(fit: BoxFit.scaleDown, child: Text(formatCurrency(net),
+              style: AppTextStyles.amount(fontSize: 30, color: AppColors.paper))),
+            if (analysis.isArchived) ...[
+              const SizedBox(height: 12),
+              Text('Archived · Kept until you delete it',
+                style: AppTextStyles.manrope(fontSize: 12, color: AppColors.pastelYellow)),
+            ],
+          ]),
+        ),
         const SizedBox(height: 20),
 
         // Income/Expenses row
@@ -231,6 +249,8 @@ class _AnswerCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Icon(Icons.auto_awesome_outlined, color: AppColors.darkGreen, size: 23),
+          const SizedBox(height: 12),
           Text(heading, style: AppTextStyles.cardHeading()),
           const SizedBox(height: 16),
           switch (status) {

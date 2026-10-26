@@ -22,17 +22,31 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   AppView _view = AppView.dashboard;
   int _highlightedTransactionId = -1;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Fire-and-forget: silently checks whether any analysis period is due
     // for an automatic request. Updates surface later via AppState's own
     // notifyListeners()/ListenableBuilder machinery, not this call directly.
     widget.appState.runAutomaticAnalysisChecks();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.appState.pruneExpiredAnalyses();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   void _openChat() {
@@ -87,16 +101,14 @@ class _AppShellState extends State<AppShell> {
       ),
       body: switch (_view) {
         AppView.dashboard => DashboardScreen(
-            appState: widget.appState,
-            onTransactionTap: _goToTransaction,
-          ),
-        AppView.analysis => AnalysisScreen(
-            appState: widget.appState,
-          ),
+          appState: widget.appState,
+          onTransactionTap: _goToTransaction,
+        ),
+        AppView.analysis => AnalysisScreen(appState: widget.appState),
         AppView.transactions => TransactionsScreen(
-            appState: widget.appState,
-            highlightId: _highlightedTransactionId,
-          ),
+          appState: widget.appState,
+          highlightId: _highlightedTransactionId,
+        ),
         AppView.categories => CategoriesScreen(appState: widget.appState),
         AppView.profile => ProfileScreen(appState: widget.appState),
         AppView.settings => SettingsScreen(appState: widget.appState),
@@ -106,7 +118,8 @@ class _AppShellState extends State<AppShell> {
         children: [
           FloatingActionButton(
             heroTag: 'addTransactionFab',
-            onPressed: () => showTransactionFormSheet(context, appState: widget.appState),
+            onPressed: () =>
+                showTransactionFormSheet(context, appState: widget.appState),
             backgroundColor: AppColors.darkGreen,
             foregroundColor: AppColors.pastelYellow,
             tooltip: 'Add transaction',

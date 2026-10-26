@@ -12,7 +12,7 @@ import '../models/category.dart';
 /// with a detailed legend showing icon, color, amount, and percentage for
 /// each category. Shared by the "Expenses by category" and "Income by
 /// category" cards — same shape, different data/title.
-class CategoryPieChart extends StatelessWidget {
+class CategoryPieChart extends StatefulWidget {
   const CategoryPieChart({
     super.key,
     required this.title,
@@ -38,6 +38,13 @@ class CategoryPieChart extends StatelessWidget {
   /// Shown in place of the chart when [data] is empty.
   final String emptyLabel;
 
+  @override
+  State<CategoryPieChart> createState() => _CategoryPieChartState();
+}
+
+class _CategoryPieChartState extends State<CategoryPieChart> {
+  String? _selectedCategory;
+
   // Fixed categorical color palette. Repeats after 8 hues.
   static const List<Color> _paletteColors = [
     AppColors.darkGreen,
@@ -52,8 +59,13 @@ class CategoryPieChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final data = widget.data;
+    final title = widget.title;
+    final emptyLabel = widget.emptyLabel;
+    final isIncome = widget.isIncome;
+    final categoryIcons = widget.categoryIcons;
     // Early return for empty state.
-    if (data.isEmpty) {
+    if (data.isEmpty || data.values.every((value) => value <= 0)) {
       return AppCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -68,12 +80,7 @@ class CategoryPieChart extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            Center(
-              child: Text(
-                emptyLabel,
-                style: AppTextStyles.metadata(),
-              ),
-            ),
+            Center(child: Text(emptyLabel, style: AppTextStyles.metadata())),
             const SizedBox(height: 40),
           ],
         ),
@@ -81,8 +88,9 @@ class CategoryPieChart extends StatelessWidget {
     }
 
     // Sort categories by value descending.
-    final sortedEntries = data.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final sortedEntries =
+        data.entries.where((entry) => entry.value > 0).toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
 
     // Fold small categories into "Other" if more than ~6 categories.
     final foldThreshold = 6;
@@ -108,23 +116,64 @@ class CategoryPieChart extends StatelessWidget {
                     PieChartSectionData(
                       value: processedData.values.elementAt(i),
                       color: _paletteColors[i % _paletteColors.length],
-                      radius: 60,
+                      radius:
+                          processedData.keys.elementAt(i) == _selectedCategory
+                          ? 70
+                          : 60,
                       titlePositionPercentageOffset: 0.6,
-                      title: '',
+                      title:
+                          processedData.keys.elementAt(i) == _selectedCategory
+                          ? '${(processedData.values.elementAt(i) / total * 100).toStringAsFixed(1)}%'
+                          : '',
+                      titleStyle: AppTextStyles.manrope(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.paper,
+                      ),
                     ),
                 ],
+                pieTouchData: PieTouchData(
+                  touchCallback: (event, response) {
+                    if (event is! FlTapUpEvent && event is! FlPointerHoverEvent) {
+                      return;
+                    }
+                    final index =
+                        response?.touchedSection?.touchedSectionIndex ?? -1;
+                    setState(
+                      () => _selectedCategory =
+                          index >= 0 && index < processedData.length
+                          ? processedData.keys.elementAt(index)
+                          : null,
+                    );
+                  },
+                ),
                 sectionsSpace: 2,
                 centerSpaceRadius: 50,
               ),
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              processedData.containsKey(_selectedCategory)
+                  ? '$_selectedCategory · ${formatCurrency(processedData[_selectedCategory]!)} · ${(processedData[_selectedCategory]! / total * 100).toStringAsFixed(1)}%'
+                  : 'Tap a slice or category to explore',
+              style: AppTextStyles.metadata(),
+            ),
+          ),
+          const SizedBox(height: 16),
           // Legend: one row per category with icon, color, name, amount, percentage.
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (int i = 0; i < processedData.length; i++)
                 _LegendItem(
+                  onTap: () => setState(
+                    () => _selectedCategory = processedData.keys.elementAt(i),
+                  ),
+                  selected:
+                      _selectedCategory == processedData.keys.elementAt(i),
                   category: processedData.keys.elementAt(i),
                   amount: processedData.values.elementAt(i),
                   total: total,
@@ -172,6 +221,8 @@ class _LegendItem extends StatelessWidget {
     required this.categoryIcons,
     required this.isIncome,
     this.hasOther = false,
+    required this.onTap,
+    required this.selected,
   });
 
   final String category;
@@ -181,68 +232,88 @@ class _LegendItem extends StatelessWidget {
   final Map<String, String> categoryIcons;
   final bool isIncome;
   final bool hasOther;
+  final VoidCallback onTap;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final percentage = total > 0 ? (amount / total) * 100 : 0;
     final percentageStr = '${percentage.toStringAsFixed(1)}%';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          // Icon (only for known categories, not "Other").
-          if (!hasOther)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Image.asset(
-                categoryIconAsset(categoryIconKeyFor(category, customIcons: categoryIcons), isIncome: isIncome),
-                width: 16,
-                height: 16,
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.sageTint : null,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+          child: Row(
+            children: [
+              // Icon (only for known categories, not "Other").
+              if (!hasOther)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Image.asset(
+                    categoryIconAsset(
+                      categoryIconKeyFor(category, customIcons: categoryIcons),
+                      isIncome: isIncome,
+                    ),
+                    width: 16,
+                    height: 16,
+                  ),
+                )
+              else
+                const SizedBox(width: 24), // Spacer for alignment when no icon
+              // Color swatch.
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            )
-          else
-            const SizedBox(width: 24), // Spacer for alignment when no icon
+              const SizedBox(width: 8),
 
-          // Color swatch.
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 8),
-
-          // Category name.
-          Expanded(
-            child: Text(
-              category,
-              style: AppTextStyles.manrope(fontSize: 14, fontWeight: FontWeight.w500),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-
-          // Amount.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              formatCurrency(amount),
-              style: AppTextStyles.dmMono(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.ink,
+              // Category name.
+              Expanded(
+                child: Text(
+                  category,
+                  style: AppTextStyles.manrope(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-          ),
 
-          // Percentage.
-          Text(
-            percentageStr,
-            style: AppTextStyles.metadata(),
+              // Amount.
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    formatCurrency(amount),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.dmMono(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+              // Percentage.
+              Text(percentageStr, style: AppTextStyles.metadata()),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'app_card.dart';
@@ -33,8 +34,8 @@ class IncomeExpenseBarChart extends StatelessWidget {
           );
 
     // Check for empty state: no buckets or all values are zero.
-    final isEmpty = buckets.isEmpty ||
-        buckets.every((b) => b.$2 == 0 && b.$3 == 0);
+    final isEmpty =
+        buckets.isEmpty || buckets.every((b) => b.$2 == 0 && b.$3 == 0);
 
     return AppCard(
       child: Column(
@@ -55,12 +56,33 @@ class IncomeExpenseBarChart extends StatelessWidget {
           else
             LayoutBuilder(
               builder: (context, constraints) {
-                final barChartWidth = constraints.maxWidth;
+                final rawInterval = maxValue / 4;
+                final magnitude = math
+                    .pow(10, (math.log(rawInterval) / math.ln10).floor())
+                    .toDouble();
+                final interval = [1.0, 2.0, 5.0, 10.0]
+                    .map((step) => step * magnitude)
+                    .firstWhere((step) => step >= rawInterval);
+                final maxY = (maxValue / interval).ceil() * interval;
+                final axisStyle = AppTextStyles.dmMono(
+                  fontSize: 9,
+                  color: AppColors.ink60,
+                );
+                final painter = TextPainter(
+                  text: TextSpan(text: formatCurrency(maxY), style: axisStyle),
+                  textDirection: TextDirection.ltr,
+                  textScaler: MediaQuery.textScalerOf(context),
+                )..layout();
+                final axisWidth = (painter.width + 12).clamp(
+                  45.0,
+                  constraints.maxWidth * 0.45,
+                );
+                final barChartWidth = constraints.maxWidth - axisWidth;
                 return SizedBox(
                   height: 200,
                   child: BarChart(
                     BarChartData(
-                      maxY: maxValue * 1.1, // Add 10% padding at top
+                      maxY: maxY,
                       barGroups: [
                         for (int i = 0; i < buckets.length; i++)
                           BarChartGroupData(
@@ -73,7 +95,8 @@ class IncomeExpenseBarChart extends StatelessWidget {
                                 width: _barWidth(buckets.length, barChartWidth),
                                 borderRadius: BorderRadius.vertical(
                                   top: Radius.circular(
-                                    _barWidth(buckets.length, barChartWidth) / 2,
+                                    _barWidth(buckets.length, barChartWidth) /
+                                        2,
                                   ),
                                 ),
                               ),
@@ -84,7 +107,8 @@ class IncomeExpenseBarChart extends StatelessWidget {
                                 width: _barWidth(buckets.length, barChartWidth),
                                 borderRadius: BorderRadius.vertical(
                                   top: Radius.circular(
-                                    _barWidth(buckets.length, barChartWidth) / 2,
+                                    _barWidth(buckets.length, barChartWidth) /
+                                        2,
                                   ),
                                 ),
                               ),
@@ -123,7 +147,21 @@ class IncomeExpenseBarChart extends StatelessWidget {
                           ),
                         ),
                         leftTitles: AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            interval: interval,
+                            reservedSize: axisWidth,
+                            getTitlesWidget: (value, meta) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  formatCurrency(value),
+                                  style: axisStyle,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                         topTitles: AxisTitles(
                           sideTitles: SideTitles(showTitles: false),
@@ -135,7 +173,8 @@ class IncomeExpenseBarChart extends StatelessWidget {
                       barTouchData: BarTouchData(
                         enabled: true,
                         touchTooltipData: BarTouchTooltipData(
-                          getTooltipColor: (_) => AppColors.ink.withValues(alpha: 0.9),
+                          getTooltipColor: (_) =>
+                              AppColors.ink.withValues(alpha: 0.9),
                           tooltipRoundedRadius: AppRadii.input,
                           getTooltipItem: (group, groupIndex, rod, rodIndex) {
                             final label = rodIndex == 0 ? 'Income' : 'Expenses';
@@ -155,12 +194,9 @@ class IncomeExpenseBarChart extends StatelessWidget {
                         show: true,
                         drawHorizontalLine: true,
                         drawVerticalLine: false,
-                        horizontalInterval: maxValue / 4,
+                        horizontalInterval: interval,
                         getDrawingHorizontalLine: (value) {
-                          return FlLine(
-                            color: AppColors.ink10,
-                            strokeWidth: 1,
-                          );
+                          return FlLine(color: AppColors.ink10, strokeWidth: 1);
                         },
                       ),
                       borderData: FlBorderData(show: false),
@@ -214,10 +250,7 @@ class _Legend extends StatelessWidget {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 6),
         Text(label, style: AppTextStyles.metadata()),

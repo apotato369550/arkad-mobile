@@ -78,25 +78,37 @@ extension StatsRangeLabel on StatsRange {
 /// see IDEA.md § Stack). No provider/riverpod: callers listen via a single
 /// ListenableBuilder at the shell root.
 class AppState extends ChangeNotifier {
-  AppState(this._persistence)
-    : transactions = _persistence.loadTransactions(),
-      profile = _persistence.loadProfile(),
-      incomeCategories = _persistence.loadIncomeCategories(),
-      expenseCategories = _persistence.loadExpenseCategories(),
-      categoryIcons = _persistence.loadCategoryIcons(),
-      apiConfig = _persistence.loadApiConfig(),
-      conversations = _persistence.loadConversations(),
-      activeConversationId = _determineActiveConversationId(
-        _persistence.loadConversations(),
-      ),
-      savedAnalyses = _persistence.loadSavedAnalyses(),
-      backupSettings = _persistence.loadBackupSettings(),
-      _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
+  AppState(
+    this._persistence, {
+    OpenRouterService? openRouter,
+    DateTime Function()? now,
+  }) : _openRouter = openRouter ?? OpenRouterService(),
+       _now = now ?? DateTime.now,
+       transactions = _persistence.loadTransactions(),
+       profile = _persistence.loadProfile(),
+       incomeCategories = _persistence.loadIncomeCategories(),
+       expenseCategories = _persistence.loadExpenseCategories(),
+       categoryIcons = _persistence.loadCategoryIcons(),
+       apiConfig = _persistence.loadApiConfig(),
+       conversations = _persistence.loadConversations(),
+       activeConversationId = _determineActiveConversationId(
+         _persistence.loadConversations(),
+       ),
+       savedAnalyses = _persistence.loadSavedAnalyses(),
+       backupSettings = _persistence.loadBackupSettings(),
+       _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
     setAppCurrency(profile.currencyCode);
+    _ytdUsage = _persistence.loadYtdUsage();
+    _seedYtdUsage();
+    pruneExpiredAnalyses(notify: false);
   }
 
   final PersistenceService _persistence;
-  final OpenRouterService _openRouter = OpenRouterService();
+  final OpenRouterService _openRouter;
+  final DateTime Function() _now;
+  Map<String, int> _ytdUsage = {};
+  final Set<AnalysisPeriod> _requestsInFlight = {};
+  int _dataRevision = 0;
   final CloudBackupService cloudBackup = CloudBackupService();
 
   List<LedgerTransaction> transactions;
@@ -523,30 +535,81 @@ class AppState extends ChangeNotifier {
         prior.moneyMindset != style.moneyMindset ||
         prior.guidancePreference != style.guidancePreference ||
         prior.contextNote != style.contextNote;
+    if (answersChanged) {
+      _quizRevision++;
+      spendingStyleErrors.clear();
+    }
     updateProfile(
       profile.copyWith(
         spendingStyle: style.copyWith(
           completedAt: style.completedAt ?? DateTime.now(),
+          assessmentSource: answersChanged ? '' : style.assessmentSource,
+          guidanceSource: answersChanged ? '' : style.guidanceSource,
           reflectionCurrent: answersChanged ? false : style.reflectionCurrent,
         ),
       ),
     );
   }
 
-  Future<void> generateSpendingStyleReflection() async {
-    final text = await _openRouter.generateSpendingStyleReflection(
-      apiKey: effectiveApiKey,
-      modelSlug: apiConfig.modelSlug,
-      profile: profile,
-    );
-    updateProfile(
-      profile.copyWith(
-        spendingStyle: profile.spendingStyle.copyWith(
-          reflection: text,
-          reflectionCurrent: true,
+  int _quizRevision = 0;
+  final Set<String> _quizRequests = {};
+  final Map<SpendingStyleSection, String> spendingStyleErrors = {};
+
+  bool isGeneratingSpendingStyle(SpendingStyleSection section) => _quizRequests
+      .contains('${section.name}:${profile.spendingStyle.answersKey}');
+
+  Future<void> generateSpendingStyleSection(
+    SpendingStyleSection section,
+  ) async {
+    final style = profile.spendingStyle;
+    final key = '${section.name}:${style.answersKey}';
+    if (_quizRequests.contains(key) || style.isCurrent(section)) return;
+    final revision = _quizRevision;
+    final dataRevision = _dataRevision;
+    _quizRequests.add(key);
+    spendingStyleErrors.remove(section);
+    notifyListeners();
+    try {
+      final text = await _openRouter.generateSpendingStyleSection(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        profile: profile,
+        section: section,
+      );
+      if (text.trim().isEmpty) {
+        throw OpenRouterException(
+          'Arkad returned an empty response. Please retry.',
+        );
+      }
+      if (revision != _quizRevision ||
+          dataRevision != _dataRevision ||
+          profile.spendingStyle.answersKey != style.answersKey) {
+        return;
+      }
+      final current = profile.spendingStyle;
+      updateProfile(
+        profile.copyWith(
+          spendingStyle: section == SpendingStyleSection.assessment
+              ? current.copyWith(
+                  assessment: text.trim(),
+                  assessmentSource: style.answersKey,
+                )
+              : current.copyWith(
+                  guidance: text.trim(),
+                  guidanceSource: style.answersKey,
+                ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (revision == _quizRevision && dataRevision == _dataRevision) {
+        spendingStyleErrors[section] = error is OpenRouterException
+            ? error.message
+            : 'Could not generate this section. Please retry.';
+      }
+    } finally {
+      _quizRequests.remove(key);
+      notifyListeners();
+    }
   }
 
   void addCategory({
@@ -638,6 +701,11 @@ class AppState extends ChangeNotifier {
     conversations = _persistence.loadConversations();
     activeConversationId = _determineActiveConversationId(conversations);
     savedAnalyses = _persistence.loadSavedAnalyses();
+    _analysisRequestLog = _persistence.loadAnalysisRequestLog();
+    _ytdUsage = _persistence.loadYtdUsage();
+    _dataRevision++;
+    _seedYtdUsage();
+    pruneExpiredAnalyses(notify: false);
     setAppCurrency(profile.currencyCode);
     notifyListeners();
   }
@@ -697,29 +765,88 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String monthKey(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}';
+
+  void _seedYtdUsage() {
+    final counts = <String, int>{};
+    for (final analysis in savedAnalyses.where(
+      (a) => a.period == AnalysisPeriod.ytd,
+    )) {
+      final key = monthKey(analysis.createdAt);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final last = _analysisRequestLog[AnalysisPeriod.ytd];
+    if (last != null) counts.putIfAbsent(monthKey(last), () => 1);
+    for (final entry in counts.entries) {
+      if (entry.value > (_ytdUsage[entry.key] ?? 0)) {
+        _ytdUsage[entry.key] = entry.value;
+      }
+    }
+    _persistence.saveYtdUsage(_ytdUsage);
+  }
+
+  int get ytdRequestsRemaining =>
+      (3 - (_ytdUsage[monthKey(_now())] ?? 0)).clamp(0, 3);
+
+  bool isRequestingAnalysis(AnalysisPeriod period) =>
+      _requestsInFlight.contains(period);
+
+  void pruneExpiredAnalyses({bool notify = true}) {
+    final retained = savedAnalyses.where((a) => !a.isExpiredAt(_now())).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final changed = retained.length != savedAnalyses.length;
+    savedAnalyses = retained;
+    if (changed) {
+      _persistence.saveSavedAnalyses(savedAnalyses);
+      if (notify) notifyListeners();
+    }
+  }
+
+  void setAnalysisArchived(String id, bool archived) {
+    savedAnalyses = [
+      for (final analysis in savedAnalyses)
+        if (analysis.id == id)
+          analysis.copyWith(isArchived: archived)
+        else
+          analysis,
+    ];
+    pruneExpiredAnalyses(notify: false);
+    _persistence.saveSavedAnalyses(savedAnalyses);
+    notifyListeners();
+  }
+
   /// Whether [period] can be requested right now — either it's never been
   /// requested, or its calendar-arithmetic cooldown (see
   /// [AnalysisPeriodX.nextAvailableAt]) has elapsed.
   bool canRequestAnalysis(AnalysisPeriod period) {
+    if (_requestsInFlight.contains(period)) return false;
+    if (period == AnalysisPeriod.ytd) return ytdRequestsRemaining > 0;
     final last = _analysisRequestLog[period];
     if (last == null) return true;
-    return !DateTime.now().isBefore(period.nextAvailableAt(last));
+    return !_now().isBefore(period.nextAvailableAt(last));
   }
 
   /// The next moment [period] becomes requestable again, or null if it's
   /// never been requested or is already available now.
   DateTime? nextAvailableAt(AnalysisPeriod period) {
+    if (period == AnalysisPeriod.ytd) {
+      final now = _now();
+      return ytdRequestsRemaining > 0
+          ? null
+          : DateTime(now.year, now.month + 1);
+    }
     final last = _analysisRequestLog[period];
     if (last == null) return null;
     final next = period.nextAvailableAt(last);
-    return DateTime.now().isBefore(next) ? next : null;
+    return _now().isBefore(next) ? next : null;
   }
 
   /// Whether at least half the calendar days in [period]'s current range
   /// (rounded up) have at least one transaction — the bar for a request to
   /// produce a meaningful analysis rather than mostly empty commentary.
   bool meetsActivityThreshold(AnalysisPeriod period) {
-    final range = period.rangeFor(DateTime.now());
+    final range = period.rangeFor(_now());
     final (start, endExclusive) = _normalizedBounds(range);
     final totalDays = endExclusive.difference(start).inDays;
     final activeDays = <DateTime>{};
@@ -755,7 +882,9 @@ class AppState extends ChangeNotifier {
   Future<void> runAutomaticAnalysisChecks() async {
     if (_autoAnalysisChecked || !hasApiKey) return;
     _autoAnalysisChecked = true;
-    for (final period in AnalysisPeriod.values) {
+    for (final period in AnalysisPeriod.values.where(
+      (p) => p != AnalysisPeriod.ytd,
+    )) {
       if (!canRequestAnalysis(period) || !meetsActivityThreshold(period)) {
         continue;
       }
@@ -779,13 +908,30 @@ class AppState extends ChangeNotifier {
   /// the request can be retried without waiting out a cooldown it never
   /// used. Returns the new analysis's id.
   Future<String> requestAnalysis(AnalysisPeriod period) async {
+    if (_requestsInFlight.contains(period)) {
+      throw AnalysisRequestException(
+        'This analysis is already being generated.',
+      );
+    }
+    _requestsInFlight.add(period);
+    notifyListeners();
+    try {
+      return await _requestAnalysis(period);
+    } finally {
+      _requestsInFlight.remove(period);
+      notifyListeners();
+    }
+  }
+
+  Future<String> _requestAnalysis(AnalysisPeriod period) async {
+    final revision = _dataRevision;
     if (!hasApiKey) {
       throw AnalysisRequestException(
         'Add an OpenRouter API key in Settings before requesting an analysis.',
       );
     }
-    if (!canRequestAnalysis(period)) {
-      final next = nextAvailableAt(period)!;
+    final next = nextAvailableAt(period);
+    if (next != null) {
       throw AnalysisRequestException(
         'You can request another ${period.label} analysis on ${formatMDY(next)}.',
       );
@@ -796,7 +942,7 @@ class AppState extends ChangeNotifier {
       );
     }
 
-    final now = DateTime.now();
+    final now = _now();
     final range = period.rangeFor(now);
     final (totalIncome, totalExpense) = totalsForDateRange(range);
     final expenseCats = expenseByCategory(range);
@@ -933,7 +1079,17 @@ class AppState extends ChangeNotifier {
       actionableStepsError: results[3].error,
     );
 
+    if (revision != _dataRevision) {
+      throw AnalysisRequestException(
+        'Your data changed while generating. Please try again.',
+      );
+    }
     savedAnalyses = [analysis, ...savedAnalyses];
+    if (period == AnalysisPeriod.ytd) {
+      final key = monthKey(now);
+      _ytdUsage[key] = (_ytdUsage[key] ?? 0) + 1;
+      await _persistence.saveYtdUsage(_ytdUsage);
+    }
     _persistence.saveSavedAnalyses(savedAnalyses);
     _analysisRequestLog = {..._analysisRequestLog, period: now};
     _persistence.saveAnalysisRequestLog(_analysisRequestLog);
@@ -1094,6 +1250,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> clearAllData() async {
+    _dataRevision++;
+    spendingStyleErrors.clear();
     await _persistence.clearAll();
     transactions = _persistence.loadTransactions();
     profile = Profile();
@@ -1106,6 +1264,7 @@ class AppState extends ChangeNotifier {
     savedAnalyses = [];
     backupSettings = BackupSettings();
     _analysisRequestLog = {};
+    _ytdUsage = {};
     notifyListeners();
   }
 }
