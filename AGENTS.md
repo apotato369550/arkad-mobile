@@ -152,8 +152,33 @@ Follow `STYLE_GUIDE.md` and reuse `AppColors`, `AppTextStyles`, `AppRadii`, and 
 
 Use `flutter_test`, descriptive behavior-based test names, and `*_test.dart` filenames. There is no configured coverage threshold.
 
+### Local suite runner and maintenance
+
+- Run `dart run tools/test_app.dart` from the repository root for analysis, all
+  registered test groups, and a diff check. Use `--list`, `--group analysis`,
+  `--verbose`, or `--help`; focused runs still perform analysis and diff checks.
+- Indicators are RUN/PASS/FAIL. Exit codes: 0 success, 1 check failure, 2 setup or
+  argument/mapping failure. Reports live in ignored `build/test-results/latest/`;
+  the combined `report.txt` identifies checks from the latest completed run.
+- When adding/moving/renaming/deleting tests, update the `groups` map in
+  `tools/test_app.dart`. Include each test once; preserve unique test basenames
+  because discovery currently matches basenames. Never silently omit new tests.
+- Keep QUICKSTART.md's group/coverage table current. Update README.md when the
+  entry command or usage changes, and this section/table when conventions or
+  coverage change. Document actual coverage, not the planned app-wide suite.
+- This runner currently wraps focused existing regressions. It does not yet
+  implement comprehensive app-wide workflows or tests of the runner itself.
+  Group names do not imply complete feature coverage.
+- Keep tests isolated from installed-app data, credentials, and live services.
+  Generated reports are local artifacts, not source files. Environment failures
+  and interrupted checks must not be reported as app regressions or passes.
+
+
 | Test file | Coverage focus |
 | --- | --- |
+| `test/demo_transactions_test.dart` | Demo-ledger validity, determinism, and activity coverage |
+| `test/dashboard_quiz_card_test.dart` | Quiz-card layout, touch targets, and navigation across widths/text scales |
+| `test/cash_flow_range_test.dart` | Seven daily/weekly/monthly cash-flow buckets and range starts |
 | `test/widget_test.dart` | First-launch onboarding smoke test |
 | `test/openrouter_service_test.dart` | Structured response parsing and completion retries |
 | `test/spending_style_profile_test.dart` | Profile compatibility and preference prompt context |
