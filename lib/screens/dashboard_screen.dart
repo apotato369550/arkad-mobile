@@ -163,40 +163,43 @@ class _SpendingStyleCard extends StatelessWidget {
     final complete = appState.profile.spendingStyle.isComplete;
     return AppCard(
       color: complete ? AppColors.sageTint : AppColors.paper,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: AppColors.pastelYellow,
-              borderRadius: BorderRadius.circular(AppRadii.iconTile),
-            ),
-            child: const Icon(Icons.auto_awesome, color: AppColors.darkGreen),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  complete
-                      ? 'Your spending style'
-                      : 'What kind of spender are you?',
-                  style: AppTextStyles.cardHeading(),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  complete
-                      ? 'See the preferences guiding Arkad’s advice.'
-                      : 'A short quiz to make Arkad’s guidance feel more personal.',
-                  style: AppTextStyles.metadata(),
-                ),
-              ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.pastelYellow,
+                borderRadius: BorderRadius.circular(AppRadii.iconTile),
+              ),
+              child: const Icon(Icons.auto_awesome, color: AppColors.darkGreen),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(height: 16),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                complete
+                    ? 'Your spending style'
+                    : 'What kind of spender are you?',
+                style: AppTextStyles.cardHeading(),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                complete
+                    ? 'See the preferences guiding Arkad’s advice.'
+                    : 'A short quiz to make Arkad’s guidance feel more personal.',
+                style: AppTextStyles.metadata(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
           OutlinedButton(
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SpendingStyleQuizScreen(

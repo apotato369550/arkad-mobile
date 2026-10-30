@@ -24,9 +24,11 @@ class AnalysisScreen extends StatefulWidget {
 
 class _AnalysisScreenState extends State<AnalysisScreen> {
   CashFlowRange _range = CashFlowRange.sevenDays;
-  String _labelForBucket(DateTime date) => _range == CashFlowRange.sevenDays
-      ? formatDayLabel(date)
-      : formatMonthLabel(date);
+  String _labelForBucket(DateTime date) => switch (_range) {
+    CashFlowRange.sevenDays => formatDayLabel(date),
+    CashFlowRange.sevenWeeks => formatMonthDay(date),
+    CashFlowRange.sevenMonths => formatMonthLabel(date),
+  };
 
   @override
   void initState() {

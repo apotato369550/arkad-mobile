@@ -39,19 +39,19 @@ typedef _AnswerResult = ({
   String? error,
 });
 
-enum CashFlowRange { sevenDays, sixMonths, twelveMonths }
+enum CashFlowRange { sevenDays, sevenWeeks, sevenMonths }
 
 extension CashFlowRangeLabel on CashFlowRange {
   String get shortLabel => switch (this) {
     CashFlowRange.sevenDays => '7D',
-    CashFlowRange.sixMonths => '6M',
-    CashFlowRange.twelveMonths => '12M',
+    CashFlowRange.sevenWeeks => '7W',
+    CashFlowRange.sevenMonths => '7M',
   };
 
   String get caption => switch (this) {
     CashFlowRange.sevenDays => 'Last 7 days',
-    CashFlowRange.sixMonths => 'Last 6 months',
-    CashFlowRange.twelveMonths => 'Last 12 months',
+    CashFlowRange.sevenWeeks => 'Last 7 weeks',
+    CashFlowRange.sevenMonths => 'Last 7 months',
   };
 }
 
@@ -227,10 +227,14 @@ class AppState extends ChangeNotifier {
           bucketSizeDays: 1,
           count: 7,
         );
-      case CashFlowRange.sixMonths:
-        return _monthlyBuckets(start: _cashFlowStart(range), count: 6);
-      case CashFlowRange.twelveMonths:
-        return _monthlyBuckets(start: _cashFlowStart(range), count: 12);
+      case CashFlowRange.sevenWeeks:
+        return _bucketedByDays(
+          rangeStart: _cashFlowStart(range),
+          bucketSizeDays: 7,
+          count: 7,
+        );
+      case CashFlowRange.sevenMonths:
+        return _monthlyBuckets(start: _cashFlowStart(range), count: 7);
     }
   }
 
@@ -238,22 +242,22 @@ class AppState extends ChangeNotifier {
   /// source of truth shared by [cashFlow]'s bucketing and
   /// [dateTimeRangeForCashFlow].
   DateTime _cashFlowStart(CashFlowRange range) {
-    final now = DateTime.now();
+    final now = _now();
     switch (range) {
       case CashFlowRange.sevenDays:
         final todayStart = DateTime(now.year, now.month, now.day);
         return todayStart.subtract(const Duration(days: 6));
-      case CashFlowRange.sixMonths:
-        return DateTime(now.year, now.month - 5, 1);
-      case CashFlowRange.twelveMonths:
-        return DateTime(now.year, now.month - 11, 1);
+      case CashFlowRange.sevenWeeks:
+        return DateTime(now.year, now.month, now.day - 48);
+      case CashFlowRange.sevenMonths:
+        return DateTime(now.year, now.month - 6, 1);
     }
   }
 
   /// The [DateTimeRange] a given [CashFlowRange] resolves to (e.g. for the
   /// Analysis screen's pie chart) — same bounds [cashFlow] buckets over.
   DateTimeRange dateTimeRangeForCashFlow(CashFlowRange range) {
-    return DateTimeRange(start: _cashFlowStart(range), end: DateTime.now());
+    return DateTimeRange(start: _cashFlowStart(range), end: _now());
   }
 
   List<(DateTime, double, double)> _bucketedByDays({

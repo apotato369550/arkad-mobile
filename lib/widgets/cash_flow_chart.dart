@@ -32,8 +32,8 @@ class _CashFlowChartState extends State<CashFlowChart> {
     const chartHeight = 120.0;
     final labelStep = switch (_range) {
       CashFlowRange.sevenDays => 1,
-      CashFlowRange.sixMonths => 1,
-      CashFlowRange.twelveMonths => 1,
+      CashFlowRange.sevenWeeks => 1,
+      CashFlowRange.sevenMonths => 1,
     };
 
     return AppCard(
@@ -44,7 +44,10 @@ class _CashFlowChartState extends State<CashFlowChart> {
           const SizedBox(height: 4),
           Text(_range.caption, style: AppTextStyles.metadata()),
           const SizedBox(height: 14),
-          _RangeSelector(selected: _range, onChanged: (r) => setState(() => _range = r)),
+          _RangeSelector(
+            selected: _range,
+            onChanged: (r) => setState(() => _range = r),
+          ),
           const SizedBox(height: 24),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -89,7 +92,10 @@ class _CashFlowChartState extends State<CashFlowChart> {
                   child: Center(
                     child: Text(
                       i % labelStep == 0 ? _labelFor(days[i].$1) : '',
-                      style: AppTextStyles.dmMono(fontSize: 9, color: AppColors.ink50),
+                      style: AppTextStyles.dmMono(
+                        fontSize: 9,
+                        color: AppColors.ink50,
+                      ),
                     ),
                   ),
                 ),
@@ -109,10 +115,10 @@ class _CashFlowChartState extends State<CashFlowChart> {
   }
 
   String _labelFor(DateTime date) => switch (_range) {
-        CashFlowRange.sevenDays => formatDayLabel(date),
-        CashFlowRange.sixMonths => formatMonthLabel(date),
-        CashFlowRange.twelveMonths => formatMonthLabel(date),
-      };
+    CashFlowRange.sevenDays => formatDayLabel(date),
+    CashFlowRange.sevenWeeks => formatMonthDay(date),
+    CashFlowRange.sevenMonths => formatMonthLabel(date),
+  };
 }
 
 class _RangeSelector extends StatelessWidget {
@@ -125,10 +131,14 @@ class _RangeSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: AppColors.cream, borderRadius: BorderRadius.circular(AppRadii.pill)),
+      decoration: BoxDecoration(
+        color: AppColors.cream,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
       child: Row(
         children: [
-          for (final range in CashFlowRange.values) Expanded(child: _segment(range)),
+          for (final range in CashFlowRange.values)
+            Expanded(child: _segment(range)),
         ],
       ),
     );
@@ -188,7 +198,11 @@ class _Legend extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
         const SizedBox(width: 6),
         Text(label, style: AppTextStyles.metadata()),
       ],
