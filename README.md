@@ -65,6 +65,25 @@ flutter pub run flutter_launcher_icons
 flutter pub run flutter_native_splash:create
 ```
 
+## Automated checks
+
+From the repository root, with Flutter/Dart on your PATH:
+
+```bash
+flutter pub get                     # Initial setup / dependency changes
+dart run tools/test_app.dart        # Analysis, grouped tests, diff check
+```
+
+The CLI prints RUN/PASS/FAIL indicators and saves diagnostics to
+`build/test-results/latest/report.txt`. No emulator, API key, or live provider
+is needed. See [the test walkthrough](QUICKSTART.md#local-correctness-checks)
+for group selection, troubleshooting, and current coverage limits.
+
+**Maintenance reminder:** when adding or renaming tests, update the group map in
+`tools/test_app.dart` and the coverage notes in QUICKSTART.md and AGENTS.md.
+The runner currently wraps focused regression tests, not complete app-wide
+workflow coverage.
+
 ## Status
 
-Personal/hobby-scale project with local persistence, optional Supabase backup, and a focused Flutter test suite. The OpenRouter integration is real (not mocked).
+Personal/hobby-scale project with local persistence, optional Supabase backup, and a focused Flutter test suite. The running app calls OpenRouter directly; automated provider tests use mocked HTTP responses.
