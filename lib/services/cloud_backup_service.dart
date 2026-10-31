@@ -42,11 +42,14 @@ class CloudBackupService {
 
   /// True once the backup identity is tied to an email — i.e. restorable on
   /// a device other than the one that created it.
-  bool get isLinkedToEmail => currentUser?.email != null && currentUser!.isAnonymous == false;
+  bool get isLinkedToEmail =>
+      currentUser?.email != null && currentUser!.isAnonymous == false;
 
   Future<void> _ensureSession() async {
     if (!configured) {
-      throw CloudBackupException('Cloud backup isn\'t configured for this build.');
+      throw CloudBackupException(
+        'Cloud backup isn\'t configured for this build.',
+      );
     }
     if (_client.auth.currentSession != null) return;
     try {
@@ -64,11 +67,17 @@ class CloudBackupService {
     try {
       await _client.from(_table).upsert({
         'user_id': userId,
-        'data': persistence.buildBackupSnapshot(),
+        'data': await persistence.buildBackupSnapshot(),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
     } on PostgrestException catch (e) {
       throw CloudBackupException(e.message);
+    } on FormatException catch (e) {
+      throw CloudBackupException(e.message);
+    } catch (_) {
+      throw CloudBackupException(
+        'Backup could not read local images or contact cloud storage. Your previous backup was not intentionally replaced.',
+      );
     }
   }
 
@@ -77,7 +86,11 @@ class CloudBackupService {
     await _ensureSession();
     final userId = _client.auth.currentUser!.id;
     try {
-      final row = await _client.from(_table).select('data').eq('user_id', userId).maybeSingle();
+      final row = await _client
+          .from(_table)
+          .select('data')
+          .eq('user_id', userId)
+          .maybeSingle();
       return row?['data'] as Map<String, dynamic>?;
     } on PostgrestException catch (e) {
       throw CloudBackupException(e.message);
@@ -94,9 +107,17 @@ class CloudBackupService {
     try {
       await persistence.restoreBackupSnapshot(snapshot);
     } on FormatException {
-      throw CloudBackupException('This backup is invalid or from an unsupported app version.');
+      throw CloudBackupException(
+        'This backup is invalid or from an unsupported app version.',
+      );
     } on TypeError {
-      throw CloudBackupException('This backup is malformed and was not restored.');
+      throw CloudBackupException(
+        'This backup is malformed and was not restored.',
+      );
+    } catch (_) {
+      throw CloudBackupException(
+        'Restore could not store chat images on this device/browser. Check available storage and permissions.',
+      );
     }
   }
 
@@ -104,7 +125,10 @@ class CloudBackupService {
   Future<void> deleteBackup() async {
     await _ensureSession();
     try {
-      await _client.from(_table).delete().eq('user_id', _client.auth.currentUser!.id);
+      await _client
+          .from(_table)
+          .delete()
+          .eq('user_id', _client.auth.currentUser!.id);
     } on PostgrestException catch (e) {
       throw CloudBackupException(e.message);
     }
@@ -127,7 +151,10 @@ class CloudBackupService {
   }
 
   /// Step 2 of linking: verifies the code sent by [sendEmailCode].
-  Future<void> verifyEmailCode({required String email, required String code}) async {
+  Future<void> verifyEmailCode({
+    required String email,
+    required String code,
+  }) async {
     final wasAnonymous = _client.auth.currentUser?.isAnonymous ?? false;
     try {
       await _client.auth.verifyOTP(

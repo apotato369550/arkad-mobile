@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:arkad_mobile/models/spending_style_profile.dart';
 import 'package:arkad_mobile/screens/dashboard_screen.dart';
+import 'package:arkad_mobile/screens/analysis_screen.dart';
 import 'package:arkad_mobile/screens/spending_style_quiz_screen.dart';
 import 'package:arkad_mobile/widgets/app_card.dart';
 import 'support/analysis_fixtures.dart';
@@ -26,10 +27,12 @@ void main() {
           await tester.pumpWidget(
             MaterialApp(
               home: Scaffold(
-                body: DashboardScreen(
-                  appState: state,
-                  onTransactionTap: (_) {},
-                ),
+                body: complete
+                    ? AnalysisScreen(appState: state)
+                    : DashboardScreen(
+                        appState: state,
+                        onTransactionTap: (_) {},
+                      ),
               ),
             ),
           );
@@ -63,7 +66,7 @@ void main() {
           expect(tester.takeException(), isNull);
           final button = find.widgetWithText(
             OutlinedButton,
-            complete ? 'View' : 'Answer quiz',
+            complete ? 'View results' : 'Answer quiz',
           );
           expect(tester.getSize(button).height, greaterThanOrEqualTo(44));
           expect(

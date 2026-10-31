@@ -109,7 +109,7 @@ Without `--group`, all registered groups run sequentially:
 | `dashboard` | Daily/weekly/monthly cash-flow bucket ranges; quiz-card layout and navigation |
 | `analysis` | Retention, archives, YTD quota, overlap, automatic requests, backup compatibility |
 | `quiz` | Profile compatibility, prompt context, separate syntheses, caching/retries/stale responses |
-| `chat` | Structured response parsing and provider completion retries |
+| `chat` | Shell navigation, responsive hub/conversation layout, single-line keyboard behavior; parsing/retries; hub send/reply UI; archive/quote compatibility; stale replies; currency; image normalization, multimodal requests and v2 snapshots |
 
 ### Read the result
 
@@ -150,3 +150,57 @@ test files and duplicate mapping entries. Keep test basenames unique with the
 current basename-based discovery. Update this table and AGENTS.md when coverage
 changes, and README.md when commands or entry points change. Do not claim planned
 coverage as implemented or commit generated test reports.
+
+
+## Chat attachments and browser checks
+
+Open **Chat** in the sidebar as a regular app page (hamburger menu, not a back
+arrow). Its single-line composer scrolls long text horizontally without growing.
+History cards show the first user question, ellipsized to the card width.
+After upgrading from the old pushed Chat route, hot restart rather than hot
+reload so the previous navigation stack is cleared.
+Send a message from the centered composer to create
+and open a conversation. The sparkle shortcut focuses that composer. History
+supports All/Archived filters and archive/unarchive/delete actions. Reply on an
+Arkad response attaches a removable quote to your next message.
+
+The paperclip selects up to 3 JPEG/PNG/WebP images. Inputs must be <=10 MiB and
+20 megapixels each. Images are normalized to JPEG without source metadata,
+resized to <=1600 pixels on the longest edge and <=1 MiB each. Retained images
+are limited to 20 MiB, including archives; delete conversations to free space.
+Images are sent to OpenRouter and retained in local history and optional backups.
+An image-capable model is required; unsupported providers show errors rather than
+silently switching models. Currency comes from Profile, not country inference.
+
+Native attachments use app-private files; web attachments use IndexedDB.
+Browser quotas/privacy settings can prevent storage or clear it later. Snapshot
+v2 includes images; v1 restores remain supported. Older app versions cannot
+restore v2. Backups fail rather than silently omit missing images.
+
+```bash
+dart run tools/test_app.dart --group chat
+# Requires a Chrome installation; set CHROME_EXECUTABLE if it is not on PATH:
+dart run tools/test_app.dart --group chat --web
+```
+
+The default runner explicitly skips browser-only storage checks. `--web` adds
+`browser_test/chat_attachment_browser_test.dart` on Chrome. Picker/permissions,
+real provider vision quality, full-size image presentation and actual cloud
+payload limits still require separate device/browser/provider QA.
+
+
+Chat UI regression tests cover 320px, 390px, and wide layouts at normal and 2×
+text size. Local inspection images are written to `build/test-results/chat-ui/`.
+These use a bundled fallback font for readable test rendering, not production
+font-fidelity checks. Real-device typography, keyboard and picker QA remain separate.
+
+
+### Chat appears to be thinking indefinitely
+
+Chat now bounds the complete reply operation to 45 seconds, including preparation
+and retries. A stalled request returns an error with Retry rather than keeping
+the composer disabled. Use **Stop** to stop waiting earlier; your message remains
+in history, and Retry does not add it a second time. Late responses are ignored.
+Stop is local: it cannot guarantee that the provider stops processing or charging
+for an HTTP request already sent. Hot restart after updating this code to clear
+an old in-memory request. No data reset is needed.

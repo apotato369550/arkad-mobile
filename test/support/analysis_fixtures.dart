@@ -19,11 +19,18 @@ SavedAnalysis sampleAnalysis({
 }) {
   final date = createdAt ?? DateTime(2026, 1, 10);
   return SavedAnalysis(
-    id: id, period: period, createdAt: date,
-    rangeStart: date.subtract(const Duration(days: 6)), rangeEnd: date,
-    isArchived: archived, totalIncome: 10000, totalExpense: 3000,
-    previousPeriodExpense: 2500, expenseByCategory: {'Food': 3000},
-    incomeByCategory: {'Salary': 10000}, cashFlowBuckets: [],
+    id: id,
+    period: period,
+    createdAt: date,
+    rangeStart: date.subtract(const Duration(days: 6)),
+    rangeEnd: date,
+    isArchived: archived,
+    totalIncome: 10000,
+    totalExpense: 3000,
+    previousPeriodExpense: 2500,
+    expenseByCategory: {'Food': 3000},
+    incomeByCategory: {'Salary': 10000},
+    cashFlowBuckets: [],
     overallText: 'Assessment for $id',
     goalProgressStatus: AnalysisAnswerStatus.loaded,
     costCuttingStatus: AnalysisAnswerStatus.loaded,
@@ -32,9 +39,17 @@ SavedAnalysis sampleAnalysis({
   );
 }
 
-http.Response completionResponse([String text = 'Useful guidance.']) => http.Response(
-  jsonEncode({'choices': [{'message': {'content': text}}]}), 200,
-);
+http.Response completionResponse([String text = 'Useful guidance.']) =>
+    http.Response(
+      jsonEncode({
+        'choices': [
+          {
+            'message': {'content': text},
+          },
+        ],
+      }),
+      200,
+    );
 
 Future<PersistenceService> testPersistence() async {
   SharedPreferences.setMockInitialValues({});
@@ -44,11 +59,14 @@ Future<PersistenceService> testPersistence() async {
 
 Future<AppState> testState({
   DateTime Function()? now,
+  Duration chatReplyTimeout = const Duration(seconds: 45),
   Future<http.Response> Function(http.Request)? handler,
 }) async {
   final persistence = await testPersistence();
   final state = AppState(
-    persistence, now: now ?? () => DateTime(2026, 1, 10),
+    persistence,
+    chatReplyTimeout: chatReplyTimeout,
+    now: now ?? () => DateTime(2026, 1, 10),
     openRouter: OpenRouterService(
       client: MockClient(handler ?? (_) async => completionResponse()),
       delay: (_) async {},
@@ -57,10 +75,17 @@ Future<AppState> testState({
   state.apiConfig = ApiConfig(apiKey: 'test-key');
   state.transactions = [
     for (var day = 1; day <= 10; day++)
-      LedgerTransaction(id: day, merchant: 'Market', category: 'Food',
-        date: DateTime(2026, 1, day), amount: 100, type: TransactionType.expense),
+      LedgerTransaction(
+        id: day,
+        merchant: 'Market',
+        category: 'Food',
+        date: DateTime(2026, 1, day),
+        amount: 100,
+        type: TransactionType.expense,
+      ),
   ];
   return state;
 }
 
-Future<PersistenceService> createExistingPersistence() => PersistenceService.create();
+Future<PersistenceService> createExistingPersistence() =>
+    PersistenceService.create();

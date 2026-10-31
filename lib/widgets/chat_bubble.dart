@@ -1,3 +1,5 @@
+import '../services/attachments/store.dart';
+import 'chat_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -17,8 +19,14 @@ class ChatBubble extends StatelessWidget {
     required this.message,
     required this.onTransactionTap,
     required this.transactions,
+    this.onReply,
+    this.attachmentStore,
+    this.onQuoteTap,
   });
 
+  final AttachmentStore? attachmentStore;
+  final VoidCallback? onQuoteTap;
+  final VoidCallback? onReply;
   final ChatMessage message;
   final ValueChanged<int> onTransactionTap;
   final List<LedgerTransaction> transactions;
@@ -28,7 +36,9 @@ class ChatBubble extends StatelessWidget {
     final isUser = message.role == ChatRole.user;
 
     // Strip and parse Arkad blocks to get display text and referenced transaction IDs.
-    final (displayText, referencedTransactionIds, _) = stripAndParseArkadBlocks(message.content);
+    final (displayText, referencedTransactionIds, _) = stripAndParseArkadBlocks(
+      message.content,
+    );
 
     // Build a map of transaction id -> transaction for quick lookup.
     final transactionMap = {for (final t in transactions) t.id: t};
@@ -36,18 +46,20 @@ class ChatBubble extends StatelessWidget {
     // Filter referenced transactions to only include those that still exist.
     final referencedTransactions = [
       for (final id in referencedTransactionIds)
-        if (transactionMap.containsKey(id))
-          transactionMap[id]!,
+        if (transactionMap.containsKey(id)) transactionMap[id]!,
     ];
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
-        constraints: const BoxConstraints(maxWidth: 300),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        constraints: BoxConstraints(
+          maxWidth: (MediaQuery.sizeOf(context).width - 40).clamp(0, 680),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
           color: isUser ? AppColors.darkGreen : AppColors.sageTint,
+          border: Border.all(color: AppColors.ink10),
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(isUser ? 20 : 4),
             topRight: Radius.circular(isUser ? 4 : 20),
@@ -58,14 +70,55 @@ class ChatBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (message.replyExcerpt != null)
+              InkWell(
+                onTap: onQuoteTap,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(
+                        color: isUser ? AppColors.sage : AppColors.darkGreen,
+                        width: 3,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    message.replyExcerpt!,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.metadata(
+                      color: isUser ? AppColors.paper : AppColors.ink60,
+                    ),
+                  ),
+                ),
+              ),
+            if (!isUser && onReply != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: 'Reply to Arkad',
+                  onPressed: onReply,
+                  icon: const Icon(Icons.reply),
+                ),
+              ),
+            if (attachmentStore != null)
+              for (final a in message.attachments)
+                ChatImage(id: a.id, store: attachmentStore!),
             // Markdown body
             MarkdownBody(
               data: displayText,
               selectable: true,
               styleSheet: MarkdownStyleSheet(
-                p: AppTextStyles.body(color: isUser ? AppColors.paper : AppColors.ink),
-                h1: AppTextStyles.cardHeading(color: isUser ? AppColors.paper : AppColors.ink),
-                h2: AppTextStyles.cardHeading(color: isUser ? AppColors.paper : AppColors.ink),
+                p: AppTextStyles.body(
+                  color: isUser ? AppColors.paper : AppColors.ink,
+                ),
+                h1: AppTextStyles.cardHeading(
+                  color: isUser ? AppColors.paper : AppColors.ink,
+                ),
+                h2: AppTextStyles.cardHeading(
+                  color: isUser ? AppColors.paper : AppColors.ink,
+                ),
                 strong: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: isUser ? AppColors.paper : AppColors.ink,
@@ -123,7 +176,9 @@ class _TransactionChip extends StatelessWidget {
     final amountColor = isIncome ? AppColors.darkGreen : AppColors.clay;
 
     return Material(
-      color: isIncome ? AppColors.sageTint : AppColors.clay.withValues(alpha: 0.14),
+      color: isIncome
+          ? AppColors.sageTint
+          : AppColors.clay.withValues(alpha: 0.14),
       borderRadius: BorderRadius.circular(AppRadii.pill),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.pill),
@@ -136,19 +191,30 @@ class _TransactionChip extends StatelessWidget {
               Flexible(
                 child: Text(
                   transaction.merchant,
-                  style: AppTextStyles.manrope(fontSize: 12, fontWeight: FontWeight.w600),
+                  style: AppTextStyles.manrope(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 6),
               Text(
                 formatSignedCurrency(transaction.amount, isIncome: isIncome),
-                style: AppTextStyles.manrope(fontSize: 12, fontWeight: FontWeight.w700, color: amountColor),
+                style: AppTextStyles.manrope(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: amountColor,
+                ),
               ),
               const SizedBox(width: 4),
               Text(
                 formatDayHeader(transaction.date),
-                style: AppTextStyles.manrope(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.ink60),
+                style: AppTextStyles.manrope(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.ink60,
+                ),
               ),
             ],
           ),

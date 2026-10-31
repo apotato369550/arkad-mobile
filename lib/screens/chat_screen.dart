@@ -1,9 +1,10 @@
+import 'dart:typed_data';
+import '../widgets/chat_composer.dart';
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
 import '../models/transaction.dart';
 import '../services/app_state.dart';
 import '../services/openrouter_service.dart';
-import '../services/id_generator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
@@ -13,8 +14,15 @@ import '../widgets/proposed_transactions_sheet.dart';
 /// Full-screen on mobile — see STYLE_GUIDE.md § Chat drawer
 /// ("Full width on smaller screens").
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.appState, this.onOpenSettings, this.onTransactionTap});
+  const ChatScreen({
+    super.key,
+    required this.appState,
+    this.onOpenSettings,
+    this.onTransactionTap,
+    this.requestInitialReply = false,
+  });
 
+  final bool requestInitialReply;
   final AppState appState;
   final VoidCallback? onOpenSettings;
   final ValueChanged<int>? onTransactionTap;
@@ -24,14 +32,28 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _service = OpenRouterService();
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _composerFocus = FocusNode();
+  final _messageKeys = <int, GlobalKey>{};
+  ChatMessage? _replyTo;
   bool _sending = false;
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.requestInitialReply) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _requestReply('');
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _composerFocus.dispose();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -48,16 +70,21 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  Future<void> _send() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
+  String _excerpt(String text) {
+    final (display, _, _) = stripAndParseArkadBlocks(text);
+    return display.length > 500 ? display.substring(0, 500) : display;
+  }
 
-    widget.appState.addChatMessage(ChatMessage(
-      id: IdGenerator.next(),
-      role: ChatRole.user,
-      content: text,
-      timestamp: DateTime.now(),
-    ));
+  Future<void> _send([List<Uint8List> images = const []]) async {
+    final text = _controller.text.trim();
+    if ((text.isEmpty && images.isEmpty) || _sending) return;
+    await widget.appState.submitChatMessage(
+      text: text,
+      images: images,
+      replyTo: _replyTo,
+    );
+    if (!mounted) return;
+    setState(() => _replyTo = null);
     _controller.clear();
     await _requestReply(text);
   }
@@ -76,25 +103,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
     List<LedgerTransaction> proposedTransactions = const [];
     try {
-      final reply = await _service.sendMessage(
-        apiKey: appState.effectiveApiKey,
-        modelSlug: appState.apiConfig.modelSlug,
-        userMessage: userMessage,
-        history: appState.activeMessages,
-        ledger: appState.transactions,
-        incomeCategories: appState.incomeCategories,
-        expenseCategories: appState.expenseCategories,
-        profile: appState.profile,
-      );
-      appState.addChatMessage(ChatMessage(
-        id: IdGenerator.next(),
-        role: ChatRole.assistant,
-        content: reply.text,
-        timestamp: DateTime.now(),
-      ));
-      proposedTransactions = reply.transactions;
+      final id = appState.activeConversationId;
+      if (id == null) return;
+      final reply = await appState.requestChatReply(id);
+      if (reply != null && appState.activeConversationId == id) {
+        proposedTransactions = reply.transactions;
+      }
     } on OpenRouterException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) {
+        setState(() => _error = e.message);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Could not complete chat request: $e');
+      }
     } finally {
       // Reset the "thinking" state before opening the review modal below,
       // so the loading indicator doesn't remain visible underneath it.
@@ -103,17 +125,27 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (proposedTransactions.isNotEmpty && mounted) {
-      await showProposedTransactionsSheet(context, appState: appState, drafts: proposedTransactions);
+      await showProposedTransactionsSheet(
+        context,
+        appState: appState,
+        drafts: proposedTransactions,
+      );
     }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.appState,
+    builder: (context, _) => _build(context),
+  );
+
+  Widget _build(BuildContext context) {
     final appState = widget.appState;
     final hasKey = appState.hasApiKey;
+    final error = _error ?? appState.chatErrors[appState.activeConversationId];
 
     return Scaffold(
-      backgroundColor: AppColors.paper,
+      backgroundColor: AppColors.cream,
       appBar: AppBar(
         backgroundColor: AppColors.paper,
         title: Row(
@@ -121,101 +153,204 @@ class _ChatScreenState extends State<ChatScreen> {
             Container(
               width: 32,
               height: 32,
-              decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: AppColors.sageTint,
+                shape: BoxShape.circle,
+              ),
               alignment: Alignment.center,
               child: ClipOval(
-                child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+                child: Image.asset(
+                  'assets/extracted/arkad_face_transparent.png',
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Arkad', style: AppTextStyles.manrope(fontWeight: FontWeight.w700)),
-                Text(
-                  hasKey ? 'Ready to help' : 'No API key configured',
-                  style: AppTextStyles.metadata(color: hasKey ? AppColors.darkGreen : AppColors.clay),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Arkad',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.manrope(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    hasKey ? 'Ready to help' : 'No API key configured',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.metadata(
+                      color: hasKey ? AppColors.darkGreen : AppColors.clay,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: () => setState(() => widget.appState.startNewConversation()),
-          ),
-        ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const Divider(height: 1),
-            if (!hasKey) _NoKeyBanner(onOpenSettings: widget.onOpenSettings),
-            Expanded(
-              child: appState.activeMessages.isEmpty
-                  ? _EmptyState(onSuggestion: (s) {
-                      _controller.text = s;
-                      if (hasKey) _send();
-                    })
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(20),
-                      itemCount: appState.activeMessages.length,
-                      itemBuilder: (context, i) => ChatBubble(
-                        message: appState.activeMessages[i],
-                        onTransactionTap: widget.onTransactionTap ?? (_) {},
-                        transactions: appState.transactions,
+        child: LayoutBuilder(
+          builder: (context, constraints) => Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                children: [
+                  const Divider(height: 1),
+                  if (!hasKey)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: constraints.maxHeight * 0.3,
+                      ),
+                      child: SingleChildScrollView(
+                        child: _NoKeyBanner(
+                          onOpenSettings: widget.onOpenSettings,
+                        ),
                       ),
                     ),
-            ),
-            if (_sending)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('Arkad is thinking…', style: TextStyle(color: AppColors.ink)),
-              ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(_error!, style: AppTextStyles.metadata(color: AppColors.clay)),
+                  Expanded(
+                    child: appState.activeMessages.isEmpty
+                        ? _EmptyState(
+                            onSuggestion: (s) {
+                              _controller.text = s;
+                              if (hasKey) _send();
+                            },
+                          )
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.all(20),
+                            itemCount: appState.activeMessages.length,
+                            itemBuilder: (context, i) => ChatBubble(
+                              key: _messageKeys.putIfAbsent(
+                                appState.activeMessages[i].id,
+                                () => GlobalKey(),
+                              ),
+                              message: appState.activeMessages[i],
+                              attachmentStore: appState.attachmentStore,
+                              onQuoteTap: () {
+                                final target =
+                                    _messageKeys[appState
+                                            .activeMessages[i]
+                                            .replyToId]
+                                        ?.currentContext;
+                                if (target != null) {
+                                  Scrollable.ensureVisible(target);
+                                }
+                              },
+                              onTransactionTap:
+                                  widget.onTransactionTap ?? (_) {},
+                              transactions: appState.transactions,
+                              onReply: () {
+                                setState(
+                                  () => _replyTo = appState.activeMessages[i],
+                                );
+                                _composerFocus.requestFocus();
+                              },
+                            ),
+                          ),
+                  ),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: constraints.maxHeight * 0.55,
                     ),
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () {
-                        // Extract last user message from history for retry
-                        String lastUserMessage = '';
-                        for (final msg in widget.appState.activeMessages.reversed) {
-                          if (msg.role == ChatRole.user) {
-                            lastUserMessage = msg.content;
-                            break;
-                          }
-                        }
-                        _requestReply(lastUserMessage);
-                      },
+                    child: SingleChildScrollView(
+                      reverse: true,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: AppColors.sageTint,
-                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                          color: AppColors.paper,
+                          border: Border(
+                            top: BorderSide(color: AppColors.ink10),
+                          ),
                         ),
-                        child: Text(
-                          'Retry',
-                          style: AppTextStyles.manrope(fontSize: 12, fontWeight: FontWeight.w700),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_sending ||
+                                (appState.activeConversationId != null &&
+                                    appState.isChatRequesting(
+                                      appState.activeConversationId!,
+                                    )))
+                              Row(
+                                children: [
+                                  const Expanded(
+                                    child: Text(
+                                      'Arkad is thinking…',
+                                      style: TextStyle(color: AppColors.ink),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      final id = appState.activeConversationId;
+                                      if (id != null) {
+                                        appState.stopChatReply(id);
+                                      }
+                                    },
+                                    child: const Text('Stop'),
+                                  ),
+                                ],
+                              ),
+                            if (error != null)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 6,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        error,
+                                        style: AppTextStyles.metadata(
+                                          color: AppColors.clay,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    TextButton(
+                                      onPressed: () => _requestReply(''),
+                                      child: const Text('Retry'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (_replyTo != null)
+                              ListTile(
+                                title: const Text('Replying to Arkad'),
+                                subtitle: Text(
+                                  _excerpt(_replyTo!.content),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: IconButton(
+                                  tooltip: 'Cancel reply',
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () =>
+                                      setState(() => _replyTo = null),
+                                ),
+                              ),
+                            ChatComposer(
+                              focusNode: _composerFocus,
+                              controller: _controller,
+                              enabled:
+                                  hasKey &&
+                                  !_sending &&
+                                  !(appState.activeConversationId != null &&
+                                      appState.isChatRequesting(
+                                        appState.activeConversationId!,
+                                      )),
+                              onSend: (images) => _send(images),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            _Composer(
-              controller: _controller,
-              enabled: hasKey && !_sending,
-              onSend: _send,
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -244,10 +379,16 @@ class _NoKeyBanner extends StatelessWidget {
             style: AppTextStyles.body(),
           ),
           const SizedBox(height: 4),
-          Text('Your key stays on this device and is never sent to Arkad.', style: AppTextStyles.metadata()),
+          Text(
+            'Your key stays on this device and is never sent to Arkad.',
+            style: AppTextStyles.metadata(),
+          ),
           if (onOpenSettings != null) ...[
             const SizedBox(height: 10),
-            TextButton(onPressed: onOpenSettings, child: const Text('Open Settings')),
+            TextButton(
+              onPressed: onOpenSettings,
+              child: const Text('Open Settings'),
+            ),
           ],
         ],
       ),
@@ -260,9 +401,9 @@ class _EmptyState extends StatelessWidget {
   final ValueChanged<String> onSuggestion;
 
   static const _suggestions = [
-    'I spent \$12 on lunch at Chipotle',
+    'I bought lunch today',
     'How much did I spend on dining this month?',
-    'Got paid \$3200 today',
+    'Help me review my income',
   ];
 
   @override
@@ -276,10 +417,16 @@ class _EmptyState extends StatelessWidget {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(color: AppColors.sageTint, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: AppColors.sageTint,
+                shape: BoxShape.circle,
+              ),
               alignment: Alignment.center,
               child: ClipOval(
-                child: Image.asset('assets/extracted/arkad_face_transparent.png', fit: BoxFit.cover),
+                child: Image.asset(
+                  'assets/extracted/arkad_face_transparent.png',
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -300,61 +447,27 @@ class _EmptyState extends StatelessWidget {
                   GestureDetector(
                     onTap: () => onSuggestion(s),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: AppColors.sageTint,
                         borderRadius: BorderRadius.circular(AppRadii.pill),
                       ),
-                      child: Text(s, style: AppTextStyles.manrope(fontSize: 13, fontWeight: FontWeight.w600)),
+                      child: Text(
+                        s,
+                        style: AppTextStyles.manrope(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
               ],
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Composer extends StatelessWidget {
-  const _Composer({required this.controller, required this.enabled, required this.onSend});
-
-  final TextEditingController controller;
-  final bool enabled;
-  final VoidCallback onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              enabled: enabled,
-              decoration: InputDecoration(
-                hintText: enabled ? 'Message Arkad…' : 'Add an API key in Settings to chat',
-                fillColor: AppColors.cream,
-              ),
-              onSubmitted: (_) => onSend(),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Material(
-            color: enabled ? AppColors.darkGreen : AppColors.ink10,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: enabled ? onSend : null,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Icon(Icons.arrow_upward, color: enabled ? AppColors.pastelYellow : AppColors.ink40, size: 20),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

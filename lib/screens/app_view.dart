@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 enum AppView {
   dashboard('Dashboard', Icons.grid_view_rounded),
+  chat('Chat', Icons.chat_bubble_outline),
   analysis('Analysis', Icons.insights_outlined),
   transactions('Transactions', Icons.receipt_long_outlined),
   categories('Categories', Icons.category_outlined),

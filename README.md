@@ -10,7 +10,7 @@ See [`QUICKSTART.md`](QUICKSTART.md) to run a local debug build, [`IDEA.md`](IDE
 - **Transactions** — full ledger, week-paginated list, add/edit modal with an icon-grid category picker (categories color-coded red for expense, green for income), view-before-edit, and search.
 - **Categories** — create/delete custom categories per type, pick a brand icon per category from an icon grid.
 - **Analysis** — on-demand and automatic AI-written breakdowns of spending (income/expense totals, goal progress, cost-cutting ideas, overall assessment, actionable steps) over a period, saved for later reference, rendered as Markdown.
-- **Chat** — natural-language transaction entry ("I spent $12 on lunch at Chipotle") and free-form spending Q&A with the AI agent; conversation history is kept and browsable.
+- **Chat** — a dedicated sidebar page with a single-line composer and All/Archived history, quoted replies, and image attachments on Android/iOS/web. Chat can propose transactions for review; nothing is logged without approval. Responses use your profile currency.
 - **Export** — ledger and analysis exported as a formatted, tabular PDF (with charts and rendered Markdown).
 - **Profile & onboarding** — display name, country/currency, occupation, financial goal, collected through a short onboarding flow and editable later.
 - **Settings** — BYOK OpenRouter API key + model slug (masked, stored in secure storage), clear key, clear all data.
@@ -64,6 +64,23 @@ To regenerate app icons/splash after changing `assets/icon/*` (config lives in `
 flutter pub run flutter_launcher_icons
 flutter pub run flutter_native_splash:create
 ```
+
+## Chat images and history
+
+Chat uses the main app header and hamburger menu. The sparkle shortcut focuses
+its composer; individual conversations open with a back arrow to Chat. Long
+messages scroll horizontally, and history cards preview the first user question.
+
+Attach up to 3 images per message. JPEG/PNG/WebP images are resized to at most
+1600 pixels on the longest edge and 1 MiB each; total retained images are capped
+at 20 MiB. Source files must be at most 10 MiB and 20 megapixels. Images are sent
+to OpenRouter, stored locally with chat history, and included in optional backups.
+Choose an image-capable model in Settings; the app never silently switches models.
+Browser storage may be cleared or limited by the browser. Archived chats retain
+images until deleted; sending to an archived chat unarchives it.
+
+Backups now use snapshot v2 (including images); v1 snapshots still restore, but
+older app versions cannot restore v2. API keys remain excluded.
 
 ## Automated checks
 

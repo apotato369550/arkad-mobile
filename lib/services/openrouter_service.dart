@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'attachments/store.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
@@ -78,6 +80,7 @@ class OpenRouterService {
     required List<String> incomeCategories,
     required List<String> expenseCategories,
     required Profile profile,
+    AttachmentStore? attachmentStore,
   }) async {
     if (apiKey.trim().isEmpty) {
       throw OpenRouterException('No OpenRouter API key configured.');
@@ -90,14 +93,42 @@ class OpenRouterService {
       profile: profile,
       userMessage: userMessage,
     );
-    final messages = [
+    final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': systemPrompt},
-      for (final m in history)
-        {
-          'role': m.role == ChatRole.user ? 'user' : 'assistant',
-          'content': m.content,
-        },
     ];
+    for (final m in history) {
+      final text = m.replyExcerpt == null
+          ? m.content
+          : 'Quoted assistant response (context only):\n${m.replyExcerpt}\n\nUser follow-up:\n${m.content}';
+      dynamic content = text;
+      if (m.attachments.isNotEmpty) {
+        final parts = <Map<String, dynamic>>[
+          {
+            'type': 'text',
+            'text': text.isEmpty ? 'Please review these images.' : text,
+          },
+        ];
+        for (final a in m.attachments) {
+          final bytes = await attachmentStore?.read(a.id);
+          if (bytes == null) {
+            throw OpenRouterException(
+              'An image is missing. Restore the image or delete this conversation before retrying.',
+            );
+          }
+          parts.add({
+            'type': 'image_url',
+            'image_url': {
+              'url': 'data:image/jpeg;base64,${base64Encode(bytes)}',
+            },
+          });
+        }
+        content = parts;
+      }
+      messages.add({
+        'role': m.role == ChatRole.user ? 'user' : 'assistant',
+        'content': content,
+      });
+    }
 
     final content = await _requestCompletionText(
       apiKey: apiKey,
@@ -484,7 +515,7 @@ class OpenRouterService {
   Future<String> _requestCompletionText({
     required String apiKey,
     required String modelSlug,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
   }) async {
     for (var attempt = 0; ; attempt++) {
       try {
@@ -549,7 +580,7 @@ class OpenRouterService {
   Future<Map<String, dynamic>> _postChatCompletion({
     required String apiKey,
     required String modelSlug,
-    required List<Map<String, String>> messages,
+    required List<Map<String, dynamic>> messages,
   }) async {
     late http.Response response;
     try {
@@ -664,6 +695,7 @@ class OpenRouterService {
     required Profile profile,
     required String userMessage,
   }) async {
+    final currency = NumberFormat.simpleCurrency(name: profile.currencyCode);
     final totalIncome = ledger
         .where((t) => t.type == TransactionType.income)
         .fold(0.0, (s, t) => s + t.amount);
@@ -681,7 +713,7 @@ class OpenRouterService {
     final transactionLines = relevant
         .map((t) {
           final sign = t.type == TransactionType.income ? '+' : '-';
-          return '- ${formatDate(t.date)} · ${t.merchant} · ${t.category} · $sign\$${t.amount.toStringAsFixed(2)}';
+          return '- ${formatDate(t.date)} · ${t.merchant} · ${t.category} · $sign${currency.format(t.amount)}';
         })
         .join('\n');
 
@@ -692,9 +724,10 @@ class OpenRouterService {
     return renderPrompt('chat_system', {
       'persona': await loadPromptTemplate('persona'),
       'profile_block': profileBlock,
+      'currency_code': profile.currencyCode,
       'ledger_count': '${ledger.length}',
-      'total_income': totalIncome.toStringAsFixed(2),
-      'total_expense': totalExpense.toStringAsFixed(2),
+      'total_income': currency.format(totalIncome),
+      'total_expense': currency.format(totalExpense),
       'transaction_lines': transactionLines,
       'income_categories': incomeCategories.join(', '),
       'expense_categories': expenseCategories.join(', '),

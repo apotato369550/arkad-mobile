@@ -12,13 +12,11 @@ class NavDrawer extends StatelessWidget {
     required this.current,
     required this.onSelect,
     required this.onOpenChat,
-    required this.onOpenConversations,
   });
 
   final AppView current;
   final ValueChanged<AppView> onSelect;
   final VoidCallback onOpenChat;
-  final VoidCallback onOpenConversations;
 
   @override
   Widget build(BuildContext context) {
@@ -38,44 +36,27 @@ class NavDrawer extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            for (final view in AppView.values)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: _NavPill(
-                  view: view,
-                  active: view == current,
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    onSelect(view);
-                  },
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Material(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(AppRadii.pill),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    onOpenConversations();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                    child: Row(
-                      children: [
-                        Icon(Icons.history, size: 18, color: AppColors.ink60),
-                        const SizedBox(width: 14),
-                        Text('Past Conversations',
-                            style: AppTextStyles.manrope(fontWeight: FontWeight.w600)),
-                      ],
+            Expanded(
+              child: ListView(
+                children: [
+                  for (final view in AppView.values)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
+                      child: _NavPill(
+                        view: view,
+                        active: view == current,
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          onSelect(view);
+                        },
+                      ),
                     ),
-                  ),
-                ),
+                ],
               ),
             ),
-            const Spacer(),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Material(
@@ -91,16 +72,27 @@ class NavDrawer extends StatelessWidget {
                     padding: const EdgeInsets.all(18),
                     child: Row(
                       children: [
-                        const Icon(Icons.auto_awesome, color: AppColors.darkGreen, size: 20),
+                        const Icon(
+                          Icons.auto_awesome,
+                          color: AppColors.darkGreen,
+                          size: 20,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Ask Arkad', style: AppTextStyles.manrope(fontWeight: FontWeight.w700)),
+                              Text(
+                                'Ask Arkad',
+                                style: AppTextStyles.manrope(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                               const SizedBox(height: 2),
-                              Text('Chat about your spending',
-                                  style: AppTextStyles.metadata()),
+                              Text(
+                                'Chat about your spending',
+                                style: AppTextStyles.metadata(),
+                              ),
                             ],
                           ),
                         ),
@@ -118,7 +110,11 @@ class NavDrawer extends StatelessWidget {
 }
 
 class _NavPill extends StatelessWidget {
-  const _NavPill({required this.view, required this.active, required this.onTap});
+  const _NavPill({
+    required this.view,
+    required this.active,
+    required this.onTap,
+  });
 
   final AppView view;
   final bool active;
@@ -136,7 +132,11 @@ class _NavPill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           child: Row(
             children: [
-              Icon(view.icon, size: 18, color: active ? AppColors.paper : AppColors.ink60),
+              Icon(
+                view.icon,
+                size: 18,
+                color: active ? AppColors.paper : AppColors.ink60,
+              ),
               const SizedBox(width: 14),
               Text(
                 view.label,

@@ -91,7 +91,59 @@ class SavedAnalysisCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(analysis.period.noun, style: AppTextStyles.cardHeading()),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  analysis.period.noun,
+                  style: AppTextStyles.cardHeading(),
+                ),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Analysis options',
+                icon: const Icon(Icons.more_horiz),
+                constraints: const BoxConstraints(minWidth: 180),
+                onSelected: (action) {
+                  if (action == 'archive') {
+                    _archive(context);
+                  } else if (action == 'delete') {
+                    _delete(context);
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'archive',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        analysis.isArchived
+                            ? Icons.unarchive_outlined
+                            : Icons.archive_outlined,
+                      ),
+                      title: Text(
+                        analysis.isArchived ? 'Unarchive' : 'Archive',
+                      ),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.delete_outline,
+                        color: AppColors.clay,
+                      ),
+                      title: Text(
+                        'Delete',
+                        style: TextStyle(color: AppColors.clay),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           Text(
             '${formatMDY(analysis.rangeStart)} – ${formatMDY(analysis.rangeEnd)}',
@@ -135,33 +187,6 @@ class SavedAnalysisCard extends StatelessWidget {
                 ? 'Kept until you delete it'
                 : 'Expires ${formatMDY(expiry)}',
             style: AppTextStyles.metadata(),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [
-              IconButton(
-                tooltip: 'View analysis',
-                onPressed: () => _view(context),
-                icon: const Icon(Icons.visibility_outlined),
-              ),
-              IconButton(
-                tooltip: analysis.isArchived
-                    ? 'Unarchive analysis'
-                    : 'Archive analysis',
-                onPressed: () => _archive(context),
-                icon: Icon(
-                  analysis.isArchived
-                      ? Icons.unarchive_outlined
-                      : Icons.archive_outlined,
-                ),
-              ),
-              IconButton(
-                tooltip: 'Delete analysis',
-                onPressed: () => _delete(context),
-                icon: const Icon(Icons.delete_outline, color: AppColors.clay),
-              ),
-            ],
           ),
         ],
       ),

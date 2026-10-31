@@ -1,3 +1,7 @@
+import 'package:image/image.dart' as image;
+import 'dart:typed_data';
+import 'attachments/store.dart';
+import 'chat_images.dart';
 import 'dart:convert';
 import 'dart:math' show max;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -48,6 +52,7 @@ class PersistenceService {
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;
   String? _cachedApiKey;
+  AttachmentStore attachmentStore = createAttachmentStore();
 
   static Future<PersistenceService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -364,15 +369,30 @@ class PersistenceService {
   /// Snapshot version, bumped when [buildBackupSnapshot]'s shape changes so
   /// [restoreBackupSnapshot] can reject or migrate snapshots it doesn't
   /// understand instead of guessing.
-  static const _backupSnapshotVersion = 1;
+  static const _backupSnapshotVersion = 2;
 
   /// Everything a cloud backup needs to fully reconstruct local state on a
   /// new device. Deliberately excludes the OpenRouter API key (secret,
   /// per-device by design — see [saveApiConfig]) and the analysis request
   /// log (a rate-limit cooldown, not user data).
-  Map<String, dynamic> buildBackupSnapshot() {
+  Future<Map<String, dynamic>> buildBackupSnapshot() async {
+    final images = <String, String>{};
+    for (final c in loadConversations()) {
+      for (final m in c.messages) {
+        for (final a in m.attachments) {
+          final bytes = await attachmentStore.read(a.id);
+          if (bytes == null) {
+            throw const FormatException(
+              "A chat image is missing; backup cancelled.",
+            );
+          }
+          images[a.id] = base64Encode(bytes);
+        }
+      }
+    }
     return {
       'version': _backupSnapshotVersion,
+      'images': images,
       'ytdUsage': loadYtdUsage(),
       'transactions': loadTransactions().map((t) => t.toJson()).toList(),
       'profile': loadProfile().toJson(),
@@ -386,11 +406,11 @@ class PersistenceService {
 
   /// Overwrites local state with a snapshot previously produced by
   /// [buildBackupSnapshot] (e.g. fetched from Supabase on a new device).
-  /// Tolerant of missing/malformed individual fields, matching the defensive
-  /// style of the rest of this class — a partially-decodable snapshot
-  /// restores what it can rather than failing closed.
+  /// Validates required data and stages images before replacing local records.
+  /// Accepts legacy v1 text-only snapshots as well as v2 image snapshots.
   Future<void> restoreBackupSnapshot(Map<String, dynamic> snapshot) async {
-    if (snapshot['version'] != _backupSnapshotVersion) {
+    if (snapshot['version'] != 1 &&
+        snapshot['version'] != _backupSnapshotVersion) {
       throw const FormatException('Unsupported backup version.');
     }
     // Decode every required field before writing. A corrupt cloud payload must
@@ -415,6 +435,81 @@ class PersistenceService {
         .map((e) => SavedAnalysis.fromJson(e as Map<String, dynamic>))
         .toList();
 
+    final oldImageIds = loadConversations()
+        .expand((c) => c.messages)
+        .expand((m) => m.attachments)
+        .map((a) => a.id)
+        .toSet();
+    final payloads = snapshot['images'] as Map<String, dynamic>? ?? {};
+    final staged = <String, Uint8List>{};
+    var totalSize = 0;
+    for (final c in conversations) {
+      for (final m in c.messages) {
+        for (final a in m.attachments) {
+          final encoded = payloads[a.id];
+          if (encoded is! String || encoded.length > 1400000) {
+            throw const FormatException('Missing or oversized image');
+          }
+          final bytes = base64Decode(encoded);
+          if (bytes.length != a.size ||
+              bytes.length > maxChatImageBytes ||
+              bytes.length < 3 ||
+              bytes[0] != 255 ||
+              bytes[1] != 216) {
+            throw const FormatException('Invalid image payload');
+          }
+          final info = image.JpegDecoder().startDecode(bytes);
+          if (info == null || info.width > 1600 || info.height > 1600) {
+            throw const FormatException('Invalid backup image dimensions');
+          }
+          final decoded = image.decodeJpg(bytes);
+          if (decoded == null ||
+              decoded.width > 1600 ||
+              decoded.height > 1600) {
+            throw const FormatException(
+              'Invalid backup image dimensions or contents',
+            );
+          }
+          if (!staged.containsKey(a.id)) totalSize += bytes.length;
+          staged[a.id] = bytes;
+        }
+      }
+    }
+    if (totalSize > maxChatStorageBytes) {
+      throw const FormatException('Backup exceeds image storage limit');
+    }
+    // Restore under new opaque IDs, never overwrite existing image files.
+    final replacements = <String, String>{};
+    try {
+      for (final entry in staged.entries) {
+        final id =
+            'restore_${DateTime.now().microsecondsSinceEpoch}_${replacements.length}';
+        replacements[entry.key] = id;
+        await attachmentStore.write(id, entry.value);
+      }
+    } catch (_) {
+      for (final id in replacements.values) {
+        await attachmentStore.delete(id);
+      }
+      rethrow;
+    }
+    final restoredConversations = conversations
+        .map(
+          (c) => c.copyWith(
+            messages: c.messages
+                .map(
+                  (m) => ChatMessage.fromJson({
+                    ...m.toJson(),
+                    'attachments': [
+                      for (final a in m.attachments)
+                        {'id': replacements[a.id]!, 'size': a.size},
+                    ],
+                  }),
+                )
+                .toList(),
+          ),
+        )
+        .toList();
     final usage = loadYtdUsage();
     for (final entry in decodeYtdUsage(snapshot['ytdUsage']).entries) {
       usage[entry.key] = max(usage[entry.key] ?? 0, entry.value);
@@ -426,12 +521,27 @@ class PersistenceService {
       saveIncomeCategories(income),
       saveExpenseCategories(expense),
       saveCategoryIcons(icons),
-      saveConversations(conversations),
+      saveConversations(restoredConversations),
       saveSavedAnalyses(analyses),
     ]);
+    for (final id in oldImageIds) {
+      try {
+        await attachmentStore.delete(id);
+      } catch (_) {
+        // Old images are no longer referenced. Cleanup failure must not turn a
+        // completed restore into an apparent failure or bypass state reload.
+      }
+    }
   }
 
   Future<void> clearAll() async {
+    for (final c in loadConversations()) {
+      for (final m in c.messages) {
+        for (final a in m.attachments) {
+          await attachmentStore.delete(a.id);
+        }
+      }
+    }
     _cachedApiKey = null;
     try {
       await _secureStorage

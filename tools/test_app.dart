@@ -9,14 +9,19 @@ Future<void> main(List<String> args) async {
     'dashboard': ['cash_flow_range_test.dart', 'dashboard_quiz_card_test.dart'],
     'analysis': ['analysis_state_test.dart'],
     'quiz': ['quiz_synthesis_test.dart', 'spending_style_profile_test.dart'],
-    'chat': ['openrouter_service_test.dart'],
+    'chat': [
+      'openrouter_service_test.dart',
+      'chat_features_test.dart',
+      'chat_ui_test.dart',
+    ],
   };
   if (args.contains('--help')) {
     stdout.writeln(
       'Arkad checks: dart run tools/test_app.dart\n'
       '  --list             List groups\n'
       '  --group analysis   Run one group\n'
-      '  --verbose          Print diagnostics as checks run',
+      '  --verbose          Print diagnostics as checks run\n'
+      '  --web              Also test browser image storage (requires Chrome)',
     );
     return;
   }
@@ -26,7 +31,7 @@ Future<void> main(List<String> args) async {
   }
   String? selected;
   for (var i = 0; i < args.length; i++) {
-    if (args[i] == '--verbose') continue;
+    if (args[i] == '--verbose' || args[i] == '--web') continue;
     if (args[i] == '--group' && i + 1 < args.length) {
       selected = args[++i];
     } else {
@@ -72,7 +77,8 @@ Future<void> main(List<String> args) async {
       if (args.contains('--verbose')) stdout.write(output);
       if (result.exitCode != 0) failed = true;
       stdout.writeln('[${result.exitCode == 0 ? 'PASS' : 'FAIL'}] $label');
-      if (result.exitCode != 0) stdout.writeln('Details: ${directory.path}/$label.log');
+      if (result.exitCode != 0)
+        stdout.writeln('Details: ${directory.path}/$label.log');
     } on ProcessException catch (error) {
       stderr.writeln(
         'Cannot start $command: $error. Install Flutter and run flutter pub get.',
@@ -105,6 +111,18 @@ Future<void> main(List<String> args) async {
         }
       }
     }
+    if (args.contains('--web')) {
+      await run('browser', 'flutter', [
+        'test',
+        '--platform',
+        'chrome',
+        'browser_test/chat_attachment_browser_test.dart',
+      ]);
+    } else {
+      stdout.writeln(
+        '[SKIP] Browser image storage (use --web; requires Chrome)',
+      );
+    }
     await run('diff-check', 'git', ['diff', '--check']);
   } on ProcessException {
     failed = true;
@@ -115,5 +133,7 @@ Future<void> main(List<String> args) async {
   stdout.writeln(
     '${failed ? 'FAILED' : 'PASSED'} — details: ${directory.path}/report.txt',
   );
-  stdout.writeln('Does not verify AI advice quality or native device behavior.');
+  stdout.writeln(
+    'Does not verify AI advice quality or native device behavior.',
+  );
 }

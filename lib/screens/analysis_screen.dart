@@ -10,6 +10,7 @@ import '../widgets/analysis_stat_tiles.dart' show showStatDetailSheet;
 import '../widgets/app_card.dart';
 import '../widgets/income_expense_bar_chart.dart';
 import '../widgets/stat_card.dart';
+import '../widgets/spending_style_card.dart';
 import '../widgets/saved_analysis_card.dart';
 import 'analysis_list_screen.dart';
 
@@ -114,6 +115,11 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         // Income/expense bar chart
         IncomeExpenseBarChart(buckets: buckets, labelBuilder: _labelForBucket),
         const SizedBox(height: 28),
+
+        if (widget.appState.profile.spendingStyle.isComplete) ...[
+          SpendingStyleCard(appState: widget.appState),
+          const SizedBox(height: 28),
+        ],
 
         Text('Latest Analysis', style: AppTextStyles.cardHeading()),
         const SizedBox(height: 14),

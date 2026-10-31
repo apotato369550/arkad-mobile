@@ -1,3 +1,7 @@
+import 'dart:async';
+import '../models/chat_attachment.dart';
+import 'attachments/store.dart';
+import 'chat_images.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:flutter/services.dart';
@@ -81,7 +85,9 @@ class AppState extends ChangeNotifier {
   AppState(
     this._persistence, {
     OpenRouterService? openRouter,
+    AttachmentStore? attachmentStore,
     DateTime Function()? now,
+    this.chatReplyTimeout = const Duration(seconds: 45),
   }) : _openRouter = openRouter ?? OpenRouterService(),
        _now = now ?? DateTime.now,
        transactions = _persistence.loadTransactions(),
@@ -97,6 +103,7 @@ class AppState extends ChangeNotifier {
        savedAnalyses = _persistence.loadSavedAnalyses(),
        backupSettings = _persistence.loadBackupSettings(),
        _analysisRequestLog = _persistence.loadAnalysisRequestLog() {
+    if (attachmentStore != null) _persistence.attachmentStore = attachmentStore;
     setAppCurrency(profile.currencyCode);
     _ytdUsage = _persistence.loadYtdUsage();
     _seedYtdUsage();
@@ -106,6 +113,7 @@ class AppState extends ChangeNotifier {
   final PersistenceService _persistence;
   final OpenRouterService _openRouter;
   final DateTime Function() _now;
+  final Duration chatReplyTimeout;
   Map<String, int> _ytdUsage = {};
   final Set<AnalysisPeriod> _requestsInFlight = {};
   int _dataRevision = 0;
@@ -708,6 +716,7 @@ class AppState extends ChangeNotifier {
     _analysisRequestLog = _persistence.loadAnalysisRequestLog();
     _ytdUsage = _persistence.loadYtdUsage();
     _dataRevision++;
+    chatErrors.clear();
     _seedYtdUsage();
     pruneExpiredAnalyses(notify: false);
     setAppCurrency(profile.currencyCode);
@@ -728,7 +737,9 @@ class AppState extends ChangeNotifier {
 
       final newConversation = Conversation(
         id: IdGenerator.next().toString(),
-        title: deriveTitle(message.content),
+        title: message.content.trim().isEmpty
+            ? 'Image conversation'
+            : deriveTitle(message.content),
         createdAt: DateTime.now(),
         messages: [message],
       );
@@ -739,7 +750,7 @@ class AppState extends ChangeNotifier {
       conversations = [
         for (final c in conversations)
           if (c.id == activeConversationId)
-            c.copyWith(messages: [...c.messages, message])
+            c.copyWith(messages: [...c.messages, message], isArchived: false)
           else
             c,
       ];
@@ -759,12 +770,210 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void deleteConversation(String id) {
+  AttachmentStore get attachmentStore => _persistence.attachmentStore;
+  final Set<String> _chatRequests = {};
+  final Map<String, Completer<void>> _chatStops = {};
+  final Map<String, String> chatErrors = {};
+  bool isChatRequesting(String id) => _chatRequests.contains(id);
+
+  Future<List<ChatAttachment>> retainChatImages(List<Uint8List> images) async {
+    if (images.length > 3) {
+      throw const FormatException('Attach up to 3 images.');
+    }
+    final current = conversations
+        .expand((c) => c.messages)
+        .expand((m) => m.attachments)
+        .fold<int>(0, (sum, a) => sum + a.size);
+    if (images.any((b) => b.isEmpty || b.length > maxChatImageBytes) ||
+        current + images.fold<int>(0, (sum, b) => sum + b.length) >
+            maxChatStorageBytes) {
+      throw const FormatException(
+        'Image storage limit reached (20 MiB). Delete conversations to free space.',
+      );
+    }
+    final attachments = <ChatAttachment>[];
+    try {
+      for (final bytes in images) {
+        final a = ChatAttachment(
+          id: 'image_${IdGenerator.next()}',
+          size: bytes.length,
+        );
+        attachments.add(a);
+        await attachmentStore.write(a.id, bytes);
+      }
+      return attachments;
+    } catch (_) {
+      for (final a in attachments) {
+        await attachmentStore.delete(a.id);
+      }
+      rethrow;
+    }
+  }
+
+  Future<String> submitChatMessage({
+    required String text,
+    List<Uint8List> images = const [],
+    ChatMessage? replyTo,
+    bool newConversation = false,
+  }) async {
+    final revision = _dataRevision;
+    final target = activeConversationId;
+    if (text.trim().isEmpty && images.isEmpty) {
+      throw const FormatException('Enter a message or select an image.');
+    }
+    if (target != null && isChatRequesting(target) && !newConversation) {
+      throw const FormatException('Wait for Arkad to finish replying.');
+    }
+    final attachments = await retainChatImages(images);
+    if (revision != _dataRevision ||
+        (!newConversation && target != activeConversationId)) {
+      for (final a in attachments) {
+        await attachmentStore.delete(a.id);
+      }
+      throw const FormatException(
+        'Chat changed while preparing images. Please retry.',
+      );
+    }
+    if (newConversation) startNewConversation();
+    final (quote, _, _) = stripAndParseArkadBlocks(replyTo?.content ?? '');
+    addChatMessage(
+      ChatMessage(
+        id: IdGenerator.next(),
+        role: ChatRole.user,
+        content: text.trim(),
+        timestamp: _now(),
+        attachments: attachments,
+        replyToId: replyTo?.id,
+        replyExcerpt: replyTo == null
+            ? null
+            : (quote.length > 500 ? quote.substring(0, 500) : quote),
+      ),
+    );
+    await _persistence.saveConversations(conversations);
+    return activeConversationId!;
+  }
+
+  /// Stops waiting locally; a provider may still finish its HTTP request.
+  void stopChatReply(String id) {
+    final stop = _chatStops[id];
+    if (stop != null && !stop.isCompleted) stop.complete();
+  }
+
+  Future<AgentReply?> requestChatReply(String conversationId) async {
+    if (_chatRequests.contains(conversationId)) return null;
+    final source = conversations
+        .where((c) => c.id == conversationId)
+        .firstOrNull;
+    if (source == null || source.messages.isEmpty) return null;
+    final revision = _dataRevision;
+    final stop = Completer<void>();
+    _chatStops[conversationId] = stop;
+    var expired = false;
+    _chatRequests.add(conversationId);
+    chatErrors.remove(conversationId);
+    notifyListeners();
+    Future<AgentReply?> perform() async {
+      final reply = await _openRouter.sendMessage(
+        apiKey: effectiveApiKey,
+        modelSlug: apiConfig.modelSlug,
+        userMessage: source.messages.last.content,
+        history: List.of(source.messages),
+        ledger: List.of(transactions),
+        incomeCategories: List.of(incomeCategories),
+        expenseCategories: List.of(expenseCategories),
+        profile: profile,
+        attachmentStore: attachmentStore,
+      );
+      if (expired ||
+          stop.isCompleted ||
+          !identical(_chatStops[conversationId], stop) ||
+          revision != _dataRevision ||
+          !conversations.any((c) => c.id == conversationId)) {
+        return null;
+      }
+      final message = ChatMessage(
+        id: IdGenerator.next(),
+        role: ChatRole.assistant,
+        content: reply.text,
+        timestamp: _now(),
+      );
+      conversations = [
+        for (final c in conversations)
+          if (c.id == conversationId)
+            c.copyWith(messages: [...c.messages, message])
+          else
+            c,
+      ];
+      await _persistence.saveConversations(conversations);
+      notifyListeners();
+      return reply;
+    }
+
+    try {
+      return await Future.any<AgentReply?>([
+        perform(),
+        stop.future.then<AgentReply?>(
+          (_) => throw OpenRouterException(
+            'Stopped waiting for Arkad. You can retry your message.',
+          ),
+        ),
+      ]).timeout(
+        chatReplyTimeout,
+        onTimeout: () {
+          expired = true;
+          throw OpenRouterException(
+            'Arkad took too long to respond. Please retry or choose another model in Settings.',
+          );
+        },
+      );
+    } catch (error) {
+      if (identical(_chatStops[conversationId], stop) &&
+          revision == _dataRevision &&
+          conversations.any((c) => c.id == conversationId)) {
+        chatErrors[conversationId] = error is OpenRouterException
+            ? error.message
+            : '$error';
+      }
+      rethrow;
+    } finally {
+      if (identical(_chatStops[conversationId], stop)) {
+        _chatStops.remove(conversationId);
+        _chatRequests.remove(conversationId);
+        notifyListeners();
+      }
+    }
+  }
+
+  void setConversationArchived(String id, bool archived) {
+    conversations = [
+      for (final c in conversations)
+        if (c.id == id) c.copyWith(isArchived: archived) else c,
+    ];
+    _persistence.saveConversations(conversations);
+    notifyListeners();
+  }
+
+  Future<void> deleteConversation(String id) async {
+    chatErrors.remove(id);
+    final removed = conversations.where((c) => c.id == id).firstOrNull;
     conversations = conversations.where((c) => c.id != id).toList();
     if (activeConversationId == id) {
       activeConversationId = null;
     }
-    _persistence.saveConversations(conversations);
+    await _persistence.saveConversations(conversations);
+    notifyListeners();
+    final referenced = conversations
+        .expand((c) => c.messages)
+        .expand((m) => m.attachments)
+        .map((a) => a.id)
+        .toSet();
+    if (removed != null) {
+      for (final m in removed.messages) {
+        for (final a in m.attachments) {
+          if (!referenced.contains(a.id)) await attachmentStore.delete(a.id);
+        }
+      }
+    }
     HapticFeedback.lightImpact();
     notifyListeners();
   }
@@ -1255,6 +1464,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> clearAllData() async {
     _dataRevision++;
+    chatErrors.clear();
     spendingStyleErrors.clear();
     await _persistence.clearAll();
     transactions = _persistence.loadTransactions();

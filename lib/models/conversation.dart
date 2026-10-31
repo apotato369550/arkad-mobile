@@ -6,8 +6,10 @@ class Conversation {
     required this.title,
     required this.createdAt,
     this.messages = const [],
+    this.isArchived = false,
   });
 
+  final bool isArchived;
   final String id;
   final String title;
   final DateTime createdAt;
@@ -18,8 +20,10 @@ class Conversation {
     String? title,
     DateTime? createdAt,
     List<ChatMessage>? messages,
+    bool? isArchived,
   }) {
     return Conversation(
+      isArchived: isArchived ?? this.isArchived,
       id: id ?? this.id,
       title: title ?? this.title,
       createdAt: createdAt ?? this.createdAt,
@@ -29,10 +33,12 @@ class Conversation {
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
     return Conversation(
+      isArchived: json['isArchived'] as bool? ?? false,
       id: json['id'] as String,
       title: json['title'] as String,
       createdAt: DateTime.parse(json['createdAt'] as String),
-      messages: (json['messages'] as List<dynamic>?)
+      messages:
+          (json['messages'] as List<dynamic>?)
               ?.map((e) => ChatMessage.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -40,9 +46,10 @@ class Conversation {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'createdAt': createdAt.toIso8601String(),
-        'messages': messages.map((m) => m.toJson()).toList(),
-      };
+    'isArchived': isArchived,
+    'id': id,
+    'title': title,
+    'createdAt': createdAt.toIso8601String(),
+    'messages': messages.map((m) => m.toJson()).toList(),
+  };
 }

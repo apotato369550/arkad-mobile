@@ -46,6 +46,10 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.4
   supabase_flutter: ^2.17.2
+  image_picker: ^1.2.4
+  image: ^4.12.0
+  path_provider: ^2.1.6
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

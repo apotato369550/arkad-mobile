@@ -143,7 +143,7 @@ Follow `STYLE_GUIDE.md` and reuse `AppColors`, `AppTextStyles`, `AppRadii`, and 
 - `SUPABASE_URL` and `SUPABASE_ANON_KEY` are public configuration; never substitute a service-role key. Supabase initialization is optional and failure must not prevent local use.
 - Backup uses anonymous Supabase authentication with optional email/OTP linking. Follow `SUPABASE_SETUP.md` for table/RLS/email provisioning; do not invent a custom account backend.
 - A backup overwrites one JSON snapshot per user; it is not version history. API keys and non-YTD request cooldown logs are excluded.
-- Snapshot version is currently 1. Decode required data before writing; make format changes deliberately and preserve old snapshots where intended.
+- Snapshot version is currently 2 (images included); continue accepting version 1 text-only snapshots. Older app versions cannot restore version 2. Decode required data before writing; make format changes deliberately and preserve old snapshots where intended.
 - Profile JSON carries quiz outputs/source metadata; saved-analysis JSON carries archive state. Missing new fields must load safely.
 - YTD usage is included in backups. Restore merges monthly counts by maximum, accepts older snapshots without usage, reloads state, seeds legacy usage, and prunes expired analyses.
 - `clearAllData` is destructive, clears local usage/configuration, and invalidates in-flight results. Do not invoke it as a debugging shortcut on user data.
@@ -176,6 +176,9 @@ Use `flutter_test`, descriptive behavior-based test names, and `*_test.dart` fil
 
 | Test file | Coverage focus |
 | --- | --- |
+| `test/chat_ui_test.dart` | Chat shell navigation/focus, single-line keyboard behavior, responsive layouts and constrained footer; local inspection screenshots |
+| `test/chat_features_test.dart` | Hub send/reply, archives/quotes, stale requests, timeout/stop/retry, currency, images and snapshot v2 |
+| `browser_test/chat_attachment_browser_test.dart` | IndexedDB persistence/deletion; opt-in Chrome check via `--web` |
 | `test/demo_transactions_test.dart` | Demo-ledger validity, determinism, and activity coverage |
 | `test/dashboard_quiz_card_test.dart` | Quiz-card layout, touch targets, and navigation across widths/text scales |
 | `test/cash_flow_range_test.dart` | Seven daily/weekly/monthly cash-flow buckets and range starts |
@@ -202,3 +205,41 @@ Use `flutter_test`, descriptive behavior-based test names, and `*_test.dart` fil
 - Commit or push only when requested. Do not amend published commits, reset user work, or force-push without explicit direction.
 - PRs should state the problem and resulting behavior, relevant issues, validation performed, and screenshots for UI changes.
 - Mention persistence migrations, automatic deletion, quota changes, and unresolved validation gaps when applicable.
+
+
+## Chat attachment maintenance
+
+- Chat history archive flags, quote metadata, and attachment lists must default
+  safely when reading legacy JSON. Archives never expire; sending unarchives.
+- Keep chat orchestration in AppState with conversation-ID/data-revision guards;
+  do not append late replies to the currently active conversation by accident.
+- Attachments: 3/message, <=1 MiB processed each, <=1600-pixel edge, <=20 MiB
+  retained total. Inputs <=10 MiB/20 megapixels. Strip source metadata.
+- Native private files and web IndexedDB store bytes; preferences store only
+  attachment metadata. Delete associated images when deleting chats/clearing data.
+- Include images in snapshot v2; validate all payloads and stage new IDs before
+  writes. Preserve v1 restore and YTD max-merge rules; never back up API keys.
+- Currency prompts must use profile currency, not hard-coded dollars or country
+  inference. Image-derived transactions remain proposals requiring approval.
+- `--web` runs the separate Chrome storage test; default runs explicitly skip it.
+  Update browser tests/docs as well as CLI groups when adding platform coverage.
+
+
+### Chat presentation
+
+- Chat is an AppView rendered in AppShell, with one app bar and hamburger menu.
+  Only individual conversations push routes with a back arrow. Keep transaction
+  reference navigation to one conversation pop before selecting Transactions.
+- Sparkle/Ask Arkad selects Chat and requests focus even on repeated invocation;
+  ordinary sidebar selection does not force focus. Hide shell FABs on Chat.
+- Shared composers remain single-line and scroll horizontally; attachments and
+  quotes occupy separate rows. Preserve Enter/send guards and IME behavior.
+- History previews use the first user message with width-based ellipsis, not
+  the latest response or the stored title. Image-only starts use a safe fallback.
+- Preserve cream canvas, paper cards, quiet borders and token-based spacing;
+  test narrow screens, large text and keyboard-constrained footer layouts.
+
+- Chat requests have a 45-second end-to-end waiting deadline and an explicit local
+  Stop action. Preserve request-token guards so late stopped/timed-out responses
+  cannot append messages or clear a subsequent retry's busy state. Stop does not
+  guarantee remote cancellation. Use an injected chatReplyTimeout in tests.
